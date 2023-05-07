@@ -1,0 +1,3 @@
+[submodule "components/libcommdev"]
+	path = components/libcommdev
+	url = https://github.com/bcostantino/libcommdev.git
