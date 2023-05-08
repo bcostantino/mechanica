@@ -85,13 +85,7 @@ void move_servos(servo_control_t *servos, int16_t *control_vector, int num_servo
 }
 
 void move_to_neutral(servo_control_t *servos, int num_servos) {
-	// uint32_t duties[num_servos];
-	// map_angles(duties, servos, NUM_SERVOS, NEUTRAL_POSITION);
-	// pwm_set_duties(duties);
-	// pwm_start();
-
 	move_servos(servos, NEUTRAL_POSITION, num_servos);
-
 }
 
 const int routine_a_len = 7;
@@ -115,7 +109,7 @@ void routine_a(servo_control_t *servos) {
 	}
 }
 
-
+/* TODO: make gpio_num optional (use pointer and NULL to denote no value) */
 typedef struct {
 	uint32_t gpio_num;			/* gpio pin number that triggered control task */
 	uint8_t servo_count;		/* number of servos */
@@ -158,18 +152,21 @@ static void servo_control_task(void *arg) {
 
 	int16_t last_positon[NUM_SERVOS];
 	for (;;) {
-		//uint32_t io_num;
 		servo_control_args_t args;
 
 		/* execute block if queue item exists
 		 * see https://www.freertos.org/a00118.html */
 		if (xQueueReceive(servo_control_queue, &args, portMAX_DELAY)) {
-			//ESP_LOGI(TAG, "GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
 			printf("Triggered by GPIO:%d, setting %d servo positions to ", args.gpio_num, args.servo_count);
 			printf("[ %d, %d, %d ]\n",
 					args.position_vector[0],
 					args.position_vector[1],
 					args.position_vector[2]);
+
+			/* TODO: set last_position here, and guard */
+
+			/* maneuver servos here */
+
 			//move_to_neutral(servos, NUM_SERVOS);
 			//routine_a(servos);
 		}
@@ -206,15 +203,14 @@ void app_main() {
 	/* add isr handler for gpio */
 	gpio_install_isr_service(0);
 
-	//servo_control_args_t *args = { GPIO_NUM_13 };
 	/* allocate args structure + control vector length 
 	 * initialize control vector to 0 */
 	servo_control_args_t *args;
-	args = (servo_control_args_t*)heap_caps_calloc(1, sizeof(servo_control_args_t), MALLOC_CAP_32BIT);
+	args = (servo_control_args_t*)heap_caps_zalloc(sizeof(servo_control_args_t), MALLOC_CAP_32BIT);
 	args->gpio_num = GPIO_NUM_13;
 	args->servo_count = NUM_SERVOS;
 	args->position_vector = (int16_t*)calloc(args->servo_count, sizeof(int16_t));
-	args->position_vector[0] = 28;
+
 	gpio_isr_handler_add(GPIO_NUM_13, reset_servos_isr_handler, (void*)args);
 
 	for(;;);
