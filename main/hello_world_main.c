@@ -205,6 +205,7 @@ void app_main() {
 
 	/* allocate args structure + control vector length 
 	 * initialize control vector to 0 */
+	/* TODO: free this memory somewhere */
 	servo_control_args_t *args;
 	args = (servo_control_args_t*)heap_caps_zalloc(sizeof(servo_control_args_t), MALLOC_CAP_32BIT);
 	args->gpio_num = GPIO_NUM_13;
