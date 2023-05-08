@@ -111,22 +111,51 @@ void gpio_isr_handler(void *arg) {
 
 static xQueueHandle gpio_evt_queue = NULL;
 
-static void gpio_isr_handler(void *arg)
-{
-    uint32_t gpio_num = (uint32_t) arg;
+static void reset_servos_isr_handler(void *arg) {
+	uint32_t gpio_num = (uint32_t)arg;
     xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
 }
 
-static void gpio_task_example(void *arg)
-{
-    uint32_t io_num;
+static void servo_control_task(void *arg) {
 
-    for (;;) {
+	printf("Initializing servos and PWM channels\n");
+    servo_control_t *servos;	
+	servos = (servo_control_t*)heap_caps_calloc(NUM_SERVOS, sizeof(servo_control_t), MALLOC_CAP_32BIT);
+	initialize_servos(servos);
+
+	uint32_t init_duty[NUM_SERVOS];
+	float phases[NUM_SERVOS];
+	 
+	for(int i = 0; i < NUM_SERVOS; ++i) {
+	 	init_duty[i] = angle_pulsewidth_ii(&(servos[i]), 0);
+	 	phases[i] = 0;
+	 	printf("[SRVO]: servo channel #%d:\n", i);
+	 	printf("\tconfig: period = %u us, min_pw = %u us, max_px = %u us, range = %d deg\n", 
+	 			servos[i].pwm_period, servos[i].min_pulse_width,
+	 			servos[i].max_pulse_width, servos[i].angle_range);
+	 	printf("\tinitial: pw = %u us, phase = %f\n", init_duty[i], phases[i]);
+	}
+
+	pwm_init(PWM_PERIOD, init_duty, NUM_SERVOS, servo_pins);
+	pwm_set_phases(phases);
+
+	printf("Moving to neutral position...\n");
+	move_to_neutral(servos, NUM_SERVOS);
+    
+
+	for (;;) {
+		uint32_t io_num;
+		
+		/* see https://www.freertos.org/a00118.html */
         if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
             //ESP_LOGI(TAG, "GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
-            printf("GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
+			printf("Resetting servo positions...\n");
+			routine_a(servos);
         }
     }
+
+	heap_caps_free(servos);
+
 }
 
 
@@ -142,42 +171,48 @@ void app_main() {
     printf("%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
             (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 
+	// printf("Initializing servos and PWM channels\n");
+    // servo_control_t *servos;	
+	// servos = (servo_control_t*)heap_caps_calloc(NUM_SERVOS, sizeof(servo_control_t), MALLOC_CAP_32BIT);
+	// initialize_servos(servos);
+
+	// uint32_t init_duty[NUM_SERVOS];
+	// float phases[NUM_SERVOS];
+	// 
+	// for(int i = 0; i < NUM_SERVOS; ++i) {
+	// 	init_duty[i] = angle_pulsewidth_ii(&(servos[i]), 0);
+	// 	phases[i] = 0;
+
+	// 	printf("[SRVO]: servo channel #%d:\n", i);
+	// 	printf("\tconfig: period = %u us, min_pw = %u us, max_px = %u us, range = %d deg\n", 
+	// 			servos[i].pwm_period, servos[i].min_pulse_width,
+	// 			servos[i].max_pulse_width, servos[i].angle_range);
+	// 	printf("\tinitial: pw = %u us, phase = %f\n", init_duty[i], phases[i]);
+	// }
+
+	// pwm_init(PWM_PERIOD, init_duty, NUM_SERVOS, servo_pins);
+	// pwm_set_phases(phases);
+
+	// printf("Moving to neutral position...\n");
+	// move_to_neutral(servos, NUM_SERVOS);
+
 	printf("Initializing GPIO\n");
 	initialize_gpio();
-
-
-	printf("Initializing servos and PWM channels\n");
-    servo_control_t *servos;	
-	servos = (servo_control_t*)heap_caps_calloc(NUM_SERVOS, sizeof(servo_control_t), MALLOC_CAP_32BIT);
-	initialize_servos(servos);
-
-	uint32_t init_duty[NUM_SERVOS];
-	float phases[NUM_SERVOS];
-	
-	for(int i = 0; i < NUM_SERVOS; ++i) {
-		init_duty[i] = angle_pulsewidth_ii(&(servos[i]), 0);
-		phases[i] = 0;
-
-		printf("[SRVO]: servo channel #%d:\n", i);
-		printf("\tconfig: period = %u us, min_pw = %u us, max_px = %u us, range = %d deg\n", 
-				servos[i].pwm_period, servos[i].min_pulse_width,
-				servos[i].max_pulse_width, servos[i].angle_range);
-		printf("\tinitial: pw = %u us, phase = %f\n", init_duty[i], phases[i]);
-	}
-
-	pwm_init(PWM_PERIOD, init_duty, NUM_SERVOS, servo_pins);
-	pwm_set_phases(phases);
-
-	printf("Moving to neutral position...\n");
-	move_to_neutral(servos, NUM_SERVOS);
-
-    // create a queue to handle gpio event from isr and start task
+    
+ 	/* call xQueueCreate(uxQueueLength, uxItemSize) to create queue (kinda event buffer) 
+	 * see http://web.ist.utl.pt/~ist11993/FRTOS-API/group___queue_management.html */
     gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
-    xTaskCreate(gpio_task_example, "gpio_task_example", 2048, NULL, 10, NULL);
+ 
+	/* create task 
+	 * see https://www.freertos.org/a00125.html and https://www.freertos.org/taskandcr.html */
+	xTaskCreate(servo_control_task, "servo_control_task", 2048, NULL, 10, NULL);
 	
-	
+	/* add isr handler for gpio */
 	gpio_install_isr_service(0);
-	gpio_isr_handler_add(GPIO_NUM_13, gpio_isr_handler, (void*)GPIO_NUM_13);
+	gpio_isr_handler_add(GPIO_NUM_13, reset_servos_isr_handler, (void*)GPIO_NUM_13);
+
+
+
 
 
 	while(1) {
@@ -187,7 +222,7 @@ void app_main() {
 	vTaskDelay(5000 / portTICK_RATE_MS);
 
 	pwm_stop(0);
-	heap_caps_free(servos);
+
 	fflush(stdout);
     esp_restart();
 }
