@@ -51,5 +51,13 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
+# idf related
+sdkconfig*
+
+# build
 build/
 
+# lsp data
+compile_commands.json
+.cache/
+.ccls-cache/
