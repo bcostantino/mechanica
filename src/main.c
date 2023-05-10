@@ -1,4 +1,12 @@
-/* Mechanica - ESP8266 */
+/**
+ * MECHANICA - ESP8266
+ * 
+ * Control a robotic arm
+ *
+ * Last Updated: 05.09.2023
+ * Author: Brian Costantino
+ * License: MIT
+ */
 
 #include <stdio.h>
 #include <stdint.h>
@@ -6,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 
 #include "esp_system.h"
 #include "esp_spi_flash.h"
@@ -17,13 +26,8 @@
 #include "driver/gpio.h"
 #include "driver/pwm.h"
 
-
-
-
 #define PWM_PERIOD (20000)
 #define NUM_SERVOS 3
-
-
 
 
 const uint32_t servo_pins[NUM_SERVOS] = {
@@ -37,12 +41,11 @@ void initialize_gpio() {
 	io_conf.intr_type = GPIO_INTR_POSEDGE;
 	io_conf.mode = GPIO_MODE_INPUT;
 	io_conf.pin_bit_mask = GPIO_Pin_13;
+
 	//io_conf.pull_down_en = 1;
 
 	gpio_config(&io_conf);
-
 }
-
 
 void initialize_servos(servo_control_t *servos) {
 
@@ -74,7 +77,7 @@ void map_angles(uint32_t *duties, servo_control_t *servos, int num_servos, int16
 const int16_t NEUTRAL_POSITION[3] = { 0, 0, 0 };
 
 /**
- *
+ *  move servos to angles in control vector
  */
 void move_servos(servo_control_t *servos, int16_t *control_vector, int num_servos) {	
 	uint32_t duties[num_servos];
@@ -86,6 +89,7 @@ void move_servos(servo_control_t *servos, int16_t *control_vector, int num_servo
 void move_to_neutral(servo_control_t *servos, int num_servos) {
 	move_servos(servos, NEUTRAL_POSITION, num_servos);
 }
+
 
 const int routine_a_len = 7;
 const int16_t _routine_a[7][3] = {
@@ -184,7 +188,9 @@ static void servo_control_task(void *arg) {
 
 }
 
-servo_control_args_t *next_isr_args = NULL;
+volatile servo_control_args_t *next_isr_args = NULL;
+
+static SemaphoreHandle_t mutex;
 
 void app_main() {
 
@@ -193,13 +199,13 @@ void app_main() {
 	esp_chip_info(&chip_info);
 	printf("This is ESP8266 chip with %d CPU cores, WiFi, ", chip_info.cores);
 	printf("silicon revision %d, ", chip_info.revision);
-	printf("%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
+	printf("%uMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
 			(chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 
 	printf("Initializing GPIO\n");
 	initialize_gpio();
 
-	heap_trace_start(HEAP_TRACE_LEAKS);		// for debugging
+	mutex = xSemaphoreCreateMutex();
 
 	/* call xQueueCreate(uxQueueLength, uxItemSize) to create queue (kinda event buffer) 
 	 * see http://web.ist.utl.pt/~ist11993/FRTOS-API/group___queue_management.html
@@ -236,7 +242,7 @@ void app_main() {
 
 	fflush(stdout);
 	esp_restart();
-
+	
 }
 
 /* TO READ:
@@ -246,3 +252,24 @@ void app_main() {
  *
  */
 
+/** MIT License
+ *
+ * Copyright (C) 2023 Brian Costantino
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of 
+ * this software and associated documentation files (the “Software”), to deal in 
+ * the Software without restriction, including without limitation the rights to use, 
+ * copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the 
+ * Software, and to permit persons to whom the Software is furnished to do so, 
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS 
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR 
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN 
+ * AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
