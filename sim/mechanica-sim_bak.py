@@ -42,54 +42,6 @@ def calculate_joint_angles(frame, behavior):
             joint_angles[i] = np.radians(end_angle - (frame / 180) * angle_range)
     return joint_angles
 
-def calculate_end_effector_coordinates(dh_parameters):
-    # Initialize the transformation matrix
-    T = np.eye(4)
-    coords = []
-    # Iterate over the DH parameters
-    for i, dh in enumerate(dh_parameters):
-        a, alpha, d, theta = dh
-
-        # Compute the transformation matrix for the current joint
-        dh_matrix = dh_transform(a, alpha, d, theta)
-
-        # Multiply the transformation matrix with the previous one
-        T = np.matmul(T, dh_matrix)
-        end_effector_coords = T[:3,3]
-
-        # print(f'joint #{i}:')
-        # print('trans matrix: ', T)
-        # print('coords: ', end_effector_coords)
-        # input("Press Enter to continue...")
-
-        coords.append((end_effector_coords[0], end_effector_coords[1], end_effector_coords[2]))
-
-    return coords
-    # Extract the end effector coordinates from the final transformation matrix
-    #end_effector_coords = T[:3, 3]
-
-    # Return the coordinates as a list of tuples
-    #return [(x, y, z) for x, y, z in zip(end_effector_coords[:, 0], end_effector_coords[:, 1], end_effector_coords[:, 2])]
-
-def calculate_end_effector_coordinates_2(dh_params):
-    num_joints = len(dh_params)
-    end_effector_coords = np.zeros((num_joints + 1, 3))  # Initialize end effector coordinates
-
-    for i in range(num_joints):
-        # Extract DH parameters for the current joint
-        a, alpha, d, theta = dh_params[i]
-
-        # Calculate transformation matrix for the current joint
-        transformation_matrix = dh_transform(a, alpha, d, theta)
-
-        # Extract the translation component from the transformation matrix
-        translation_vector = transformation_matrix[:3, 3]
-
-        # Compute the end effector coordinates by accumulating the translations
-        end_effector_coords[i+1] = end_effector_coords[i] + translation_vector
-
-    return end_effector_coords
-
 
 def animate_arm(dh_params, behavior, num_frames = 360):
     global animation_running, animation
@@ -132,71 +84,55 @@ def animate_arm(dh_params, behavior, num_frames = 360):
             # animation.event_source.stop()  # Stop the existing animation
             animation.frame_seq = animation.new_frame_seq()
 
-    
-
-    data_display_frame = tk.Frame(root)
-    #controls_frame.grid(row=1, column=0)
-    data_display_frame.pack()
-
-    controls_frame = tk.Frame(data_display_frame)
-    controls_frame.grid(row=0, column=0, padx=10, pady=10)
-
-    start_pause_button = Button(controls_frame, text="Start/Pause", command=start_pause_simulation)
+    start_pause_button = Button(root, text="Start/Pause", command=start_pause_simulation)
     start_pause_button.pack(side=tk.LEFT, padx=10)
 
-    restart_button = Button(controls_frame, text="Restart", command=restart_simulation)
+    restart_button = Button(root, text="Restart", command=restart_simulation)
     restart_button.pack(side=tk.LEFT, padx=10)
+
+    # Create a frame to hold the joint angle display
+    text_frame = ttk.Frame(root)
+    text_frame.pack(side=tk.BOTTOM, pady=10)
+
+    # Create a label for joint angle display
+    joint_angle_label = ttk.Label(text_frame, text="Kinematic Data")
+    joint_angle_label.pack(side=tk.TOP)
     
-    timestep_text_box = tk.Text(controls_frame, height=4, width=30, state='disabled')
-    timestep_text_box.pack(side=tk.TOP)
+    # Create a text widget for joint angle display
+    joint_angle_text = tk.Text(text_frame, width=40, height=10)
 
+    def ctrlEvent(event):
+        if event.state == 4 and event.keysym == 'c':
+            content = joint_angle_text.selection_get()
+            root.clipboard_clear()
+            root.clipboard_append(content)
+            return "break"
+        elif event.state == 4 and event.keysym == 'v':
+            joint_angle_text.insert('end', root.selection_get(selection='CLIPBOARD'))
+            return "break"
+        else:
+            return "break"
 
-    # initialize kinematic data tree
-    _data_display_frame = tk.Frame(data_display_frame)
-    _data_display_frame.grid(row=0, column=1, padx=10, pady=10)
+    joint_angle_text.bind("<Key>", lambda e: ctrlEvent(e))
+    joint_angle_text.pack(side=tk.TOP)
 
-    data_display_label = ttk.Label(_data_display_frame, text="Kinematic Data")
-    data_display_label.pack(side=tk.TOP)
-
-    tree = ttk.Treeview(_data_display_frame)
-    tree["columns"] = ("θ", "X", "Y", "Z")
-    
-    tree.heading("#0", text="Joint")
-    tree.column("#0", width=50, anchor="center")
-    for column in tree["columns"]:
-        tree.heading(column, text=column)
-        tree.column(column, width=80, anchor="center")
-    
-    tree.pack()
-
-    def update_data_display(frame, joint_angles, end_effector_coordinates):
-        dt = 1
-        text = f"Frame: {frame}\n"
-        text += f"Timestep: {frame * dt:.2f}s"  # Add the current timestep information
-
-        timestep_text_box.configure(state='normal')  # Enable text box for modification
-        timestep_text_box.delete('1.0', tk.END)  # Clear previous contents
-        timestep_text_box.insert(tk.END, text)  # Insert new text
-        timestep_text_box.configure(state='disabled')  # Disable text box for readonly
-
-        # Update joint data table
-        tree.delete(*tree.get_children())  # Clear previous contents
-        joint_angles = np.degrees(joint_angles)
-        for i in range(num_joints):
-            tree.insert("", "end", text=str(i), values=(f'{joint_angles[i]:.2f}°',
-                        str(end_effector_coordinates[i][0]), str(end_effector_coordinates[i][1]), str(end_effector_coordinates[i][2])))
+    def update_text(joint_angles):
+        # Clear the text widget
+        joint_angle_text.delete(1.0, tk.END)
+        
+        # Update joint angle display text
+        for i, angle in enumerate(np.degrees(joint_angles)):
+            joint_angle_text.insert(tk.END, f"Joint {i+1}: {angle:.2f}°\n")
 
 
     def update(frame):
         joint_angles = calculate_joint_angles(frame, behavior)
+        update_text(joint_angles)
 
         for i in range(num_joints):
             dh_params[i][3] = joint_angles[i] # Update joint angles
         transformations = forward_kinematics(dh_params)
-        end_effector_coordinates = calculate_end_effector_coordinates(dh_params)
-
-        update_data_display(frame, joint_angles, end_effector_coordinates)
-
+         
         # update arm configuration
         arm_config = np.zeros((num_joints + 1, 3))
         arm_config[1:, :] = np.array([T[:3, 3] for T in transformations])
@@ -218,27 +154,23 @@ def animate_arm(dh_params, behavior, num_frames = 360):
 
     def plot_arm_3d(ax, arm_config, arm_length):
         # plot the 3D arm configuration on the given subplot
-        ax.plot(arm_config[:, 0], arm_config[:, 1], arm_config[:, 2], marker='o')
-       
-        _lim = arm_length + 0.5
-
+        ax.plot(arm_config[:, 0], arm_config[:, 1], arm_config[:, 2])
+        
         # set plot limits and labels
-        ax.set_xlim(-_lim, _lim)
-        ax.set_ylim(-_lim, _lim)
-        ax.set_zlim(-_lim, _lim)
+        ax.set_xlim(-arm_length - 1, arm_length + 1)
+        ax.set_ylim(-arm_length - 1, arm_length + 1)
+        ax.set_zlim(-arm_length - 1, arm_length + 1)
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
 
     def plot_arm_2d(ax, arm_config, arm_length, x_label, y_label):
         # plot the 2D arm configuration on the given subplot
-        ax.plot(arm_config[:, 0], arm_config[:, 1], marker='o')
-
-        _lim = arm_length + 0.5
+        ax.plot(arm_config[:, 0], arm_config[:, 1])
 
         # set plot limits and labels
-        ax.set_xlim(-_lim, _lim)
-        ax.set_ylim(-_lim, _lim)
+        ax.set_xlim(-arm_length - 1, arm_length + 1)
+        ax.set_ylim(-arm_length - 1, arm_length + 1)
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
 
@@ -262,7 +194,7 @@ dh_parameters = [
     [1, 0, 0, 0],           # Joint 2: a, alpha, d, theta
     [1, 0, 0, 0],           # Joint 3: a, alpha, d, theta
     [0, np.pi/2, 0, 0],     # Joint 4: a, alpha, d, theta
-    [0, -np.pi/2, 0.5, 0]     # Joint 5: a, alpha, d, theta
+    [0, -np.pi/2, 0, 0]     # Joint 5: a, alpha, d, theta
 ]
 
 behavior = [
