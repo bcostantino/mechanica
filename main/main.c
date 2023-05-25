@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -27,13 +28,13 @@
 #include "driver/pwm.h"
 
 #define PWM_PERIOD (20000)
-#define NUM_SERVOS 3
+#define NUM_SERVOS 2
 
 
 const uint32_t servo_pins[NUM_SERVOS] = {
 	GPIO_NUM_14,
 	GPIO_NUM_4,
-	GPIO_NUM_15
+	//GPIO_NUM_15
 };
 
 void initialize_gpio() {
@@ -74,7 +75,7 @@ void map_angles(uint32_t *duties, servo_control_t *servos, int num_servos, int16
 	}
 }
 
-const int16_t NEUTRAL_POSITION[3] = { 0, 0, 0 };
+const int16_t NEUTRAL_POSITION[2] = { 0, 0 };
 
 /**
  *  move servos to angles in control vector
@@ -102,6 +103,7 @@ const int16_t _routine_a[7][3] = {
 	{ 0, 0, 0 }
 };
 
+
 void routine_a(servo_control_t *servos) {
 	for(int i = 0; i < routine_a_len; ++i) {
 
@@ -111,6 +113,18 @@ void routine_a(servo_control_t *servos) {
 		vTaskDelay(1000 / portTICK_RATE_MS);
 	}
 }
+
+void move_routine(servo_control_t *servos, int16_t **routine, int routine_len) {
+	for(int i = 0; i < routine_len; ++i) {
+
+		int16_t *angles = routine[i];
+		move_servos(servos, angles, NUM_SERVOS);
+
+		vTaskDelay(1000 / portTICK_RATE_MS);
+	}
+}
+
+
 
 /* TODO: make gpio_num optional (use pointer and NULL to denote no value) */
 typedef struct {
@@ -152,6 +166,26 @@ static void servo_control_task(void *arg) {
 
 	printf("Moving to neutral position...\n");
 	move_to_neutral(servos, NUM_SERVOS);
+	
+	/* TODO: figure out a good way to generate movement routines */
+	/* populate routine */
+	// const uint routine_len = 9;
+	// int count_a = 0, count_b = 0;
+	// const int16_t interval = 90;
+	// int16_t **routine = (int16_t**)calloc(routine_len, sizeof(int16_t*));
+	// for (int i = 0; i < routine_len; ++i) {
+	// 	int16_t *angles = (int16_t*)calloc(NUM_SERVOS, sizeof(int16_t));
+	// 	for (int j = 0; j < NUM_SERVOS; ++j) {
+	// 		int16_t servo_range = servos[j].angle_range;
+	// 		int16_t angle; // = -(servo_range / 2) + ((j == 0) ? (count_a % 3) : (count_b % 3)) * interval;
+	// 		angles[j] = angle;
+	// 	}
+	// 	routine[i] = angles;
+	// }
+	// printf("Doing routine b...\n");
+	// move_routine(servos, routine, routine_len);
+	// printf("Moving to neutral position...\n");
+	// move_to_neutral(servos, NUM_SERVOS);
 
 	int16_t last_positon[NUM_SERVOS];
 	for (;;) {
@@ -190,8 +224,6 @@ static void servo_control_task(void *arg) {
 
 volatile servo_control_args_t *next_isr_args = NULL;
 
-static SemaphoreHandle_t mutex;
-
 void app_main() {
 
 	/* Print chip information */
@@ -202,10 +234,8 @@ void app_main() {
 	printf("%uMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
 			(chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
 
-	printf("Initializing GPIO\n");
-	initialize_gpio();
-
-	mutex = xSemaphoreCreateMutex();
+	//printf("Initializing GPIO\n");
+	//initialize_gpio();
 
 	/* call xQueueCreate(uxQueueLength, uxItemSize) to create queue (kinda event buffer) 
 	 * see http://web.ist.utl.pt/~ist11993/FRTOS-API/group___queue_management.html
@@ -230,8 +260,8 @@ void app_main() {
 
 	/* add isr handler for gpio
 	 * pass pointer to args struct reference */
-	gpio_install_isr_service(0);
-	gpio_isr_handler_add(GPIO_NUM_13, reset_servos_isr_handler, (void*)&next_isr_args);
+	//gpio_install_isr_service(0);
+	//gpio_isr_handler_add(GPIO_NUM_13, reset_servos_isr_handler, (void*)&next_isr_args);
 
 	for(;;);
 
