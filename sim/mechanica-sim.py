@@ -1,3 +1,13 @@
+##################################################
+## mechanica-sim.py 
+## python forward/inverse kinematics simulator
+##################################################
+## Author: Brian Costantino
+## License: MIT, see footer for more info
+## Version: 0.1.0
+## Status: Active
+##################################################
+
 import numpy as np
 
 import matplotlib.pyplot as plt
@@ -29,6 +39,79 @@ def forward_kinematics(dh_params):
         transformations.append(T)
     return transformations
 
+def calculate_jacobian(fk_result):
+    # Extract the number of joints
+    num_joints = len(fk_result)
+
+    # Initialize the Jacobian matrix
+    jacobian = np.zeros((6, num_joints))
+
+    # Extract the end effector position and orientation
+    end_effector_position = fk_result[-1][:3, 3]
+    end_effector_orientation = fk_result[-1][:3, :3]
+
+    for i in range(num_joints):
+        # Extract the relevant information for the joint
+        joint_transform = fk_result[i]
+        joint_axis = joint_transform[:3, 2]
+        joint_position = joint_transform[:3, 3]
+
+        # Calculate the linear velocity component of the Jacobian
+        linear_velocity = np.cross(joint_axis, end_effector_position - joint_position)
+
+        # Calculate the angular velocity component of the Jacobian
+        angular_velocity = joint_axis
+
+        # Combine the linear and angular velocities into the Jacobian matrix
+        jacobian[:3, i] = linear_velocity
+        jacobian[3:, i] = np.dot(end_effector_orientation, angular_velocity)
+
+    return jacobian
+
+def inverse_kinematics(dh_parameters, end_effector):
+    # Extract the number of joints
+    num_joints = len(dh_parameters)
+
+    # Initialize the joint angles
+    theta = np.zeros(num_joints)
+
+    # Set the convergence threshold and maximum iterations
+    threshold = 1e-6
+    max_iterations = 100
+
+    # Initialize the iteration counter and the error
+    iterations = 0
+    error = np.inf
+
+    while error > threshold and iterations < max_iterations:
+        # Perform forward kinematics with the current joint angles
+        fk_result = forward_kinematics(dh_parameters)
+        current_end_effector = fk_result[-1][:3, 3]
+
+        # Calculate the error
+        error = np.linalg.norm(end_effector - current_end_effector)
+
+        if error <= threshold:
+            break
+
+        # Calculate the Jacobian matrix
+        jacobian = calculate_jacobian(fk_result)
+
+        # Update the joint angles using the pseudoinverse of the Jacobian
+        delta_theta = np.linalg.pinv(jacobian) @ (end_effector - current_end_effector)
+        theta += delta_theta
+
+        # Update the DH parameters
+        for i in range(num_joints):
+            dh_parameters[i][3] = theta[i]
+
+        iterations += 1
+
+    if iterations == max_iterations:
+        print("Inverse kinematics did not converge.")
+
+    return np.degrees(theta)
+
 def calculate_joint_angles(frame, behavior):
     """Calculate joint angles based on the desired behavior"""
     num_joints = len(behavior)
@@ -57,19 +140,9 @@ def calculate_end_effector_coordinates(dh_parameters):
         T = np.matmul(T, dh_matrix)
         end_effector_coords = T[:3,3]
 
-        # print(f'joint #{i}:')
-        # print('trans matrix: ', T)
-        # print('coords: ', end_effector_coords)
-        # input("Press Enter to continue...")
-
         coords.append((end_effector_coords[0], end_effector_coords[1], end_effector_coords[2]))
 
     return coords
-    # Extract the end effector coordinates from the final transformation matrix
-    #end_effector_coords = T[:3, 3]
-
-    # Return the coordinates as a list of tuples
-    #return [(x, y, z) for x, y, z in zip(end_effector_coords[:, 0], end_effector_coords[:, 1], end_effector_coords[:, 2])]
 
 def calculate_end_effector_coordinates_2(dh_params):
     num_joints = len(dh_params)
@@ -241,6 +314,7 @@ def animate_arm(dh_params, behavior, num_frames = 360):
         ax.set_ylim(-_lim, _lim)
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
+        ax.grid()
 
     # Create the FigureCanvasTkAgg widget
     canvas = FigureCanvasTkAgg(fig, master=plots_frame)
@@ -255,26 +329,56 @@ def animate_arm(dh_params, behavior, num_frames = 360):
     # Start the main Tkinter event loop
     root.mainloop()
 
+# @dataclass
+# class sim_conf:
+#     dh_parameters: list[list[float]]
+#     command: str
+#     behaviour: 
 
-# Example usage
-dh_parameters = [
-    [0, np.pi/2, 0.5, 0],   # Joint 1: a, alpha, d, theta
-    [1, 0, 0, 0],           # Joint 2: a, alpha, d, theta
-    [1, 0, 0, 0],           # Joint 3: a, alpha, d, theta
-    [0, np.pi/2, 0, 0],     # Joint 4: a, alpha, d, theta
-    [0, -np.pi/2, 0.5, 0]     # Joint 5: a, alpha, d, theta
-]
 
-behavior = [
-    (0, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
-    (-45, 45, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
-    (0, 180, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-    (0, 180, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-    (0, 180, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-]
+if __name__=='__main__':
+    # Example usage
+    dh_parameters = [
+        [0, np.pi/2, 0.5, 0],   # Joint 1: a, alpha, d, theta
+        [1, 0, 0, 0],           # Joint 2: a, alpha, d, theta
+        [1, 0, 0, 0],           # Joint 3: a, alpha, d, theta
+        [0, np.pi/2, 0, 0],     # Joint 4: a, alpha, d, theta
+        [0, -np.pi/2, 0.5, 0]     # Joint 5: a, alpha, d, theta
+    ]
+    
+    behavior = [
+        (0, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
+        (-45, 45, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
+        (0, 180, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+        (0, 180, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+        (0, 180, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+    ]
+    
+    animation_running = True
+    animation = None
+    
+    animate_arm(dh_parameters, behavior)
 
-animation_running = True
-animation = None
-
-animate_arm(dh_parameters, behavior)
+################################################################################
+## Copyright (c) 2023 Brian Costantino 
+## 
+## Permission is hereby granted, free of charge, to any person obtaining
+## a copy of this software and associated documentation files (the
+## "Software"), to deal in the Software without restriction, including
+## without limitation the rights to use, copy, modify, merge, publish,
+## distribute, sublicense, and/or sell copies of the Software, and to
+## permit persons to whom the Software is furnished to do so, subject to
+## the following conditions:
+## 
+## The above copyright notice and this permission notice shall be
+## included in all copies or substantial portions of the Software.
+## 
+## THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+## EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+## MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+## NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+## LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+## OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+## WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+################################################################################
 
