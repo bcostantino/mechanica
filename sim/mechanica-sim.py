@@ -52,8 +52,6 @@ def extract_euler_angles(rotation_matrix: list[list[float]]) -> list[float]:
 
 def inverse_kinematics(dh_parameters, end_effector):
     print('starting inverse kinemetics for end effector position: ', end_effector[:3])
-    print('initial dh_params: ')
-    pretty_print_matrix(dh_parameters)
 
     # Extract the number of joints
     num_joints = len(dh_parameters)
@@ -113,10 +111,9 @@ def inverse_kinematics(dh_parameters, end_effector):
     if iterations == max_iterations:
         print("[WARN]: Inverse kinematics did not converge.")
     else:
-        print(f'last end effector position: ({", ".join(str(round(i, 2)) for i in end_effector_translation_vector)})')
-        print('last error: ', error)
-        print('new theta: ', theta)
-        print('\n')
+        print(f'[INFO]: Converged after {iterations} iterations; last error: ', error)
+        print(f'[INFO]: Achieved final end effector position: ({", ".join(str(round(i, 4)) for i in end_effector_translation_vector)})',
+              f'theta: ({", ".join(str(round(math.degrees(i), 4)) + "°" for i in theta)})')
 
     return theta
 
@@ -245,20 +242,24 @@ def animate_arm(dh_params, behavior, num_frames = 360):
         end_effector_text += f'ATT[rpy]: ({", ".join(str(round(math.degrees(i), 2)) + "°" for i in end_effector_orientation)})'
         update_readonly_textbox(end_effector_text_box, end_effector_text)
 
-    def update(frame):
+    def update_old(frame):
+        print(f'[DBG]: Figure animation frame #{frame}')
+        cmd = 'inverse-kinematics' 
         
-        #joint_angles = calculate_joint_angles(frame, behavior)
-        joint_angles = inverse_kinematics(dh_params, np.array([0,1.2,1,0,0,0]))
+        joint_angles = dh_params[:,3]
+        if cmd == 'inverse-kinematics':
+            joint_angles = inverse_kinematics(dh_params, np.array([0.5,1.2,1,0,0,0]))
 
-        if joint_angles is None:
-            joint_angles = dh_params[:,3]
-        else:
-            print('got joint angles: ', joint_angles)
-        
-        input('press to continue...')
+            if joint_angles is not None:
+                print('got joint angles: ', joint_angles)
+            
+            input('press to continue...')
 
-        for i in range(num_joints):
-            dh_params[i][3] = joint_angles[i] # Update joint angles
+        elif cmd == 'forward-kinematics':
+            joint_angles = calculate_joint_angles(frame, behavior)
+
+        #for i in range(num_joints):
+        dh_params[:,3] = joint_angles # Update joint angles
         transformations = forward_kinematics(dh_params)
         
         end_effector_coordinates = calculate_end_effector_coordinates(dh_params)
@@ -282,6 +283,57 @@ def animate_arm(dh_params, behavior, num_frames = 360):
         plot_arm_2d(ax_xy, arm_config[:, :2], arm_length, 'X', 'Y')
         plot_arm_2d(ax_yz, arm_config[:, 1:], arm_length, 'Y', 'Z')
         plot_arm_2d(ax_xz, np.column_stack((arm_config[:, 0], arm_config[:, 2])), arm_length, 'X', 'Z')
+    
+    def update(frame):
+        # print(f'[DBG]: Figure animation frame #{frame}')
+        cmd = 'inverse-kinematics' # 'forward-kinematics' 
+        
+        joint_angles = dh_params[:,3]
+        if cmd == 'inverse-kinematics':
+            start = np.array([-1, -1, -1])
+            end = np.array([1, 1, 1])
+            _range = end - start
+            target_coords = np.concatenate((start + (frame/360) * _range, [0,0,0]))# np.array([x,1.2,1,0,0,0])
+            _joint_angles = inverse_kinematics(dh_params, target_coords)
+
+            if _joint_angles is not None:
+                joint_angles = _joint_angles
+            
+            # input('press to continue...')
+        
+        elif cmd == 'forward-kinematics':
+            joint_angles = calculate_joint_angles(frame, behavior)
+
+        dh_params[:,3] = joint_angles # Update joint angles
+        transformations = forward_kinematics(dh_params)
+        
+        update_plot(dh_params, transformations)
+        update_data_display(frame, joint_angles, transformations)
+
+
+    def update_plot(dh_params, _transformations = None):
+        transformations = forward_kinematics(dh_params) if _transformations is None else _transformations
+        num_joints = len(transformations)
+
+        # update arm configuration
+        arm_config = np.zeros((num_joints + 1, 3))
+        arm_config[1:, :] = np.array([T[:3, 3] for T in transformations])
+
+        # calculate arm length
+        arm_length = sum([params[0] for params in dh_params])
+
+        # clear plots
+        ax_3d.clear()
+        ax_xy.clear()
+        ax_yz.clear()
+        ax_xz.clear()
+
+        # update plots
+        plot_arm_3d(ax_3d, arm_config, arm_length)
+        plot_arm_2d(ax_xy, arm_config[:, :2], arm_length, 'X', 'Y')
+        plot_arm_2d(ax_yz, arm_config[:, 1:], arm_length, 'Y', 'Z')
+        plot_arm_2d(ax_xz, np.column_stack((arm_config[:, 0], arm_config[:, 2])), arm_length, 'X', 'Z')
+    
 
     def plot_arm_3d(ax, arm_config, arm_length):
         # plot the 3D arm configuration on the given subplot
@@ -310,9 +362,23 @@ def animate_arm(dh_params, behavior, num_frames = 360):
         ax.set_ylabel(y_label)
         ax.grid()
 
+    def mouse_move(event):
+        if animation_running:
+            return
+        
+        x, y = event.xdata, event.ydata
+        if event.inaxes is None or x is None or y is None:
+            return
+
+        print('mouse move event triggered: ', event)
+
+
     # Create the FigureCanvasTkAgg widget
     canvas = FigureCanvasTkAgg(fig, master=plots_frame)
     canvas.draw()
+    
+    # register mouse hover event for inverse kinematics
+    canvas.mpl_connect('motion_notify_event', mouse_move)
 
     # Embed the plot in the Tkinter window
     canvas.get_tk_widget().pack()
@@ -322,12 +388,6 @@ def animate_arm(dh_params, behavior, num_frames = 360):
 
     # Start the main Tkinter event loop
     root.mainloop()
-
-# @dataclass
-# class sim_conf:
-#     dh_parameters: list[list[float]]
-#     command: str
-#     behaviour: 
 
 
 if __name__=='__main__':
@@ -351,7 +411,9 @@ if __name__=='__main__':
      
     animation_running = True
     animation = None
-     
+    
+    print('[INFO]: Initial DH parameters:')
+    pretty_print_matrix(dh_parameters)
     animate_arm(dh_parameters, behavior)
     
     # import numpy as np
