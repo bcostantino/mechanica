@@ -14,31 +14,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.animation import FuncAnimation
+from matplotlib import gridspec
 
 import tkinter as tk
 from tkinter import ttk, Button
 
-def dh_transform(a, alpha, d, theta):
-    """Compute the Denavit-Hartenberg (DH) transformation matrix"""
-    cos_theta = np.cos(theta)
-    sin_theta = np.sin(theta)
-    cos_alpha = np.cos(alpha)
-    sin_alpha = np.sin(alpha)
+from src.kinematics import *
 
-    T = np.array([[cos_theta, -sin_theta * cos_alpha, sin_theta * sin_alpha, a * cos_theta],
-                  [sin_theta, cos_theta * cos_alpha, -cos_theta * sin_alpha, a * sin_theta],
-                  [0, sin_alpha, cos_alpha, d],
-                  [0, 0, 0, 1]])
-    return T
-
-def forward_kinematics(dh_params):
-    """Perform forward kinematics based on the DH parameters"""
-    T = np.eye(4)
-    transformations = []
-    for params in dh_params:
-        T = np.dot(T, dh_transform(*params))
-        transformations.append(T)
-    return transformations
+def pretty_print_matrix(matrix):
+    s = [[str(e) for e in row] for row in matrix]
+    lens = [max(map(len, col)) for col in zip(*s)]
+    fmt = '\t'.join('{{:{}}}'.format(x) for x in lens)
+    table = [fmt.format(*row) for row in s]
+    print('\n'.join(table))
 
 def extract_euler_angles(rotation_matrix: list[list[float]]) -> list[float]:
     # Calculate the sin of the pitch angle
@@ -58,43 +46,20 @@ def extract_euler_angles(rotation_matrix: list[list[float]]) -> list[float]:
         yaw = 0.0
 
     # Return Euler angles as [pitch, roll, yaw]
-    return [pitch, roll, yaw]
+    return [roll, pitch, yaw]
 
-def calculate_jacobian(fk_result):
-    # Extract the number of joints
-    num_joints = len(fk_result)
 
-    # Initialize the Jacobian matrix
-    jacobian = np.zeros((6, num_joints))
-
-    # Extract the end effector position and orientation
-    end_effector_position = fk_result[-1][:3, 3]
-    end_effector_orientation = fk_result[-1][:3, :3]
-
-    for i in range(num_joints):
-        # Extract the relevant information for the joint
-        joint_transform = fk_result[i]
-        joint_axis = joint_transform[:3, 2]
-        joint_position = joint_transform[:3, 3]
-
-        # Calculate the linear velocity component of the Jacobian
-        linear_velocity = np.cross(joint_axis, end_effector_position - joint_position)
-
-        # Calculate the angular velocity component of the Jacobian
-        angular_velocity = joint_axis
-
-        # Combine the linear and angular velocities into the Jacobian matrix
-        jacobian[:3, i] = linear_velocity
-        jacobian[3:, i] = np.dot(end_effector_orientation, angular_velocity)
-
-    return jacobian
 
 def inverse_kinematics(dh_parameters, end_effector):
+    print('starting inverse kinemetics for end effector position: ', end_effector[:3])
+    print('initial dh_params: ')
+    pretty_print_matrix(dh_parameters)
+
     # Extract the number of joints
     num_joints = len(dh_parameters)
 
     # Initialize the joint angles
-    theta = np.zeros(num_joints)
+    theta = dh_parameters[:,3] # np.zeros(num_joints)
 
     # Set the convergence threshold and maximum iterations
     threshold = 1e-6
@@ -109,49 +74,49 @@ def inverse_kinematics(dh_parameters, end_effector):
         transformations = forward_kinematics(dh_parameters)
         
         end_effector_translation_vector = transformations[-1][:3, 3]
-        end_effector_rotation_matrix = transformations[-1][:3,:3]
-        end_effector_orientation = extract_euler_angles(end_effector_rotation_matrix)
+        # end_effector_rotation_matrix = transformations[-1][:3,:3]
+        # end_effector_orientation = extract_euler_angles(end_effector_rotation_matrix)
 
-        # Combine position and orientation components for current_end_effector
-        #current_end_effector = np.concatenate((end_effector_translation_vector, end_effector_orientation))
-
-        # Calculate the error
-        #_error = end_effector - current_end_effector
-        #error = np.linalg.norm(_error)
-        
         # Calculate the difference in Euler angles
-        euler_diff = np.array(end_effector[3:6]) - np.array(end_effector_orientation)
+        # euler_diff = np.array(end_effector[3:6]) - np.array(end_effector_orientation)
 
-        # Calculate the difference in translation vectors
+        # calculate the difference in translation vectors
         translation_diff = np.array(end_effector[:3]) - np.array(end_effector_translation_vector)
 
-        # Calculate the overall error as the Euclidean distance between the differences
-        error = np.linalg.norm(euler_diff)# + np.linalg.norm(translation_diff)
+        # calculate the overall error as the Euclidean distance between the differences
+        error = np.linalg.norm(translation_diff)
         if error <= threshold:
             break
 
         # Calculate the Jacobian matrix
-        jacobian = calculate_jacobian(transformations)
+        jacobian = calculate_jacobian_fin_diff(dh_parameters) # calculate_jacobian(transformations)
 
         # Update the joint angles using the pseudoinverse of the Jacobian
-        delta_theta = np.linalg.pinv(jacobian) @ (end_effector - np.concatenate((end_effector_translation_vector, end_effector_orientation)))
+        delta_theta = np.linalg.pinv(jacobian) @ (translation_diff)
         theta += delta_theta
 
-        print('desired end effector position:', end_effector[0:3])  # current_end_effector)
-        print('desired end effector orientation: ', end_effector[3:6])
-        print('end effector position: ', end_effector_translation_vector)
-        print('end effector position: ', end_effector_orientation)
-        print('error: ', error)
-        input('press to continue...')
+        # print(f'interation #{iterations}:')
+        # print('desired end effector position:', end_effector[0:3])  # current_end_effector)
+        # #print('desired end effector orientation: ', end_effector[3:6])
+        # print('working theta: ', dh_parameters[:num_joints][3])
+        # print(f'end effector position: ({", ".join(str(round(i, 2)) for i in end_effector_translation_vector)})')
+        # #print('end effector position: ', end_effector_orientation)
+        # print('error: ', error)
+        # print('new theta: ', theta)
+        # print('\n')
 
         # Update the DH parameters
         for i in range(num_joints):
-            dh_parameters[i][3] = theta[i]
-
+            dh_parameters[i][3] = theta[i] # dh_parameters[:num_joints][3] = theta
         iterations += 1
 
     if iterations == max_iterations:
-        print("Inverse kinematics did not converge.")
+        print("[WARN]: Inverse kinematics did not converge.")
+    else:
+        print(f'last end effector position: ({", ".join(str(round(i, 2)) for i in end_effector_translation_vector)})')
+        print('last error: ', error)
+        print('new theta: ', theta)
+        print('\n')
 
     return theta
 
@@ -168,26 +133,6 @@ def calculate_joint_angles(frame, behavior):
             joint_angles[i] = np.radians(end_angle - (frame / 180) * angle_range)
     return joint_angles
 
-def calculate_end_effector_coordinates(dh_parameters):
-    # Initialize the transformation matrix
-    T = np.eye(4)
-    coords = []
-    # Iterate over the DH parameters
-    for i, dh in enumerate(dh_parameters):
-        a, alpha, d, theta = dh
-
-        # Compute the transformation matrix for the current joint
-        dh_matrix = dh_transform(a, alpha, d, theta)
-
-        # Multiply the transformation matrix with the previous one
-        T = np.matmul(T, dh_matrix)
-        end_effector_coords = T[:3,3]
-
-        coords.append((end_effector_coords[0], end_effector_coords[1], end_effector_coords[2]))
-
-    return coords
-
-
 def animate_arm(dh_params, behavior, num_frames = 360):
     global animation_running, animation
 
@@ -203,13 +148,21 @@ def animate_arm(dh_params, behavior, num_frames = 360):
     plots_frame.pack(side=tk.TOP, pady=10)
 
     # Create the 3D plot
-    fig = plt.figure(figsize=(10, 6))
-    ax_3d = fig.add_subplot(2, 2, 1, projection='3d')
+    fig =  plt.figure(figsize=(8, 6))
+    
+    # Create a gridspec layout with 2 rows and 2 columns
+    gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1], height_ratios=[1, 1])
+    
+    ax_3d = fig.add_subplot(gs[0,0], projection='3d')
 
     # Create the 2D plots
-    ax_xy = fig.add_subplot(2, 2, 2)
-    ax_yz = fig.add_subplot(2, 2, 3)
-    ax_xz = fig.add_subplot(2, 2, 4)
+    ax_xy = fig.add_subplot(gs[0,1])
+    ax_yz = fig.add_subplot(gs[1,0])
+    ax_xz = fig.add_subplot(gs[1,1])
+
+    ax_xy.set_box_aspect(1)  # Set aspect ratio for xy subplot
+    ax_xz.set_box_aspect(1)  # Set aspect ratio for xz subplot
+    ax_yz.set_box_aspect(1)  # Set aspect ratio for yz subplot
 
     def start_pause_simulation():
         global animation, animation_running
@@ -240,7 +193,7 @@ def animate_arm(dh_params, behavior, num_frames = 360):
     restart_button = Button(controls_frame, text="Restart", command=restart_simulation)
     restart_button.pack(padx=10)
     
-    timestep_text_box = tk.Text(controls_frame, height=4, width=30, state='disabled')
+    timestep_text_box = tk.Text(controls_frame, height=2, width=30, state='disabled')
     timestep_text_box.pack()
 
     # initialize kinematic data tree
@@ -249,7 +202,7 @@ def animate_arm(dh_params, behavior, num_frames = 360):
 
 
     ttk.Label(_data_display_frame, text="End Effector").pack(side=tk.TOP)
-    end_effector_text_box = tk.Text(_data_display_frame, height=4, width=50, state='disabled')
+    end_effector_text_box = tk.Text(_data_display_frame, height=2, width=50, state='disabled')
     end_effector_text_box.pack()
 
     ttk.Label(_data_display_frame, text="Kinematic Data").pack(side=tk.TOP)
@@ -270,7 +223,7 @@ def animate_arm(dh_params, behavior, num_frames = 360):
         textbox.insert(tk.END, text)  # Insert new text
         textbox.configure(state='disabled')  # Disable text box for readonly
 
-    def update_data_display(frame, joint_angles, end_effector_transformation):
+    def update_data_display(frame, joint_angles, end_effector_transformations):
         dt = 1
         timestep_text = f"Frame: {frame}\n"
         timestep_text += f"Timestep: {frame * dt:.2f}s\n"  # Add the current timestep information
@@ -281,28 +234,35 @@ def animate_arm(dh_params, behavior, num_frames = 360):
         tree.delete(*tree.get_children())  # Clear previous contents
         joint_angles = np.degrees(joint_angles)
         for i in range(num_joints):
-            end_effector_coordinates = end_effector_transformation[:3,3]
-            end_effector_orientation = extract_euler_angles(end_effector_transformation)
+            end_effector_coordinates = end_effector_transformations[i][:3,3]
+            end_effector_orientation = extract_euler_angles(end_effector_transformations[i])
             tree.insert("", "end", text=str(i), values=(f'{joint_angles[i]:.2f}°',
                         str(round(end_effector_coordinates[0], coord_num_digits)),
                         str(round(end_effector_coordinates[1], coord_num_digits)),
                         str(round(end_effector_coordinates[2], coord_num_digits))))
         
-        end_effector_text = f'POS: ({", ".join(str(round(i, 2)) for i in end_effector_coordinates)})\n'
-        end_effector_text += f'ATT: ({", ".join(str(round(math.degrees(i), 2)) + "°" for i in end_effector_orientation)})'
+        end_effector_text = f'POS[xyz]: ({", ".join(str(round(i, 2)) for i in end_effector_coordinates)})\n'
+        end_effector_text += f'ATT[rpy]: ({", ".join(str(round(math.degrees(i), 2)) + "°" for i in end_effector_orientation)})'
         update_readonly_textbox(end_effector_text_box, end_effector_text)
 
     def update(frame):
         
-        joint_angles = calculate_joint_angles(frame, behavior)
-        # joint_angles = inverse_kinematics(dh_params, np.array([0,0,2,0,0,0]))
+        #joint_angles = calculate_joint_angles(frame, behavior)
+        joint_angles = inverse_kinematics(dh_params, np.array([0,1.2,1,0,0,0]))
+
+        if joint_angles is None:
+            joint_angles = dh_params[:,3]
+        else:
+            print('got joint angles: ', joint_angles)
+        
+        input('press to continue...')
 
         for i in range(num_joints):
             dh_params[i][3] = joint_angles[i] # Update joint angles
         transformations = forward_kinematics(dh_params)
         
         end_effector_coordinates = calculate_end_effector_coordinates(dh_params)
-        update_data_display(frame, joint_angles, transformations[-1])
+        update_data_display(frame, joint_angles, transformations)
 
         # update arm configuration
         arm_config = np.zeros((num_joints + 1, 3))
@@ -371,15 +331,16 @@ def animate_arm(dh_params, behavior, num_frames = 360):
 
 
 if __name__=='__main__':
+
     # Example usage
-    dh_parameters = [
+    dh_parameters = np.array([
         [0, np.pi/2, 0.5, 0],   # Joint 1: a, alpha, d, theta
         [1, 0, 0, 0],           # Joint 2: a, alpha, d, theta
         [1, 0, 0, 0],           # Joint 3: a, alpha, d, theta
         [0, np.pi/2, 0, 0],     # Joint 4: a, alpha, d, theta
         [0, -np.pi/2, 0.5, 0]     # Joint 5: a, alpha, d, theta
-    ]
-    
+    ])
+     
     behavior = [
         (0, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
         (-45, 45, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
@@ -387,11 +348,48 @@ if __name__=='__main__':
         (0, 180, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
         (0, 180, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
     ]
-    
+     
     animation_running = True
     animation = None
-    
+     
     animate_arm(dh_parameters, behavior)
+    
+    # import numpy as np
+    # from scipy.spatial.transform import Rotation as R
+    # 
+    # # DH parameters
+    # dh_parameters = [
+    #     [0, np.pi/2, 0.5, 0],   # Joint 1: a, alpha, d, theta
+    #     [1, 0, 0, 0],           # Joint 2: a, alpha, d, theta
+    #     [1, 0, 0, 0],           # Joint 3: a, alpha, d, theta
+    #     [0, np.pi/2, 0, 0],     # Joint 4: a, alpha, d, theta
+    #     [0, -np.pi/2, 0.5, 0]   # Joint 5: a, alpha, d, theta
+    # ]
+    # 
+    # # Joint angles in radians
+    # joint_angles = np.radians([15, 30, 150, 30, 150])
+    # 
+    # # Transformation matrices for each joint
+    # transform_matrices = []
+    # for i in range(len(dh_parameters)):
+    #     a, alpha, d, theta = dh_parameters[i]
+    #     transform_matrix = dh_transform(a, alpha, d, theta + joint_angles[i])
+    #     transform_matrices.append(transform_matrix)
+    # 
+    # # End effector transformation matrix
+    # end_effector_matrix = np.eye(4)
+    # for transform_matrix in transform_matrices:
+    #     end_effector_matrix = np.dot(end_effector_matrix, transform_matrix)
+    # 
+    # # Extract position from the end effector transformation matrix
+    # end_effector_position = end_effector_matrix[:3, 3]
+    # 
+    # # Extract orientation (roll, pitch, yaw) from the end effector transformation matrix
+    # rotation = R.from_matrix(end_effector_matrix[:3, :3])
+    # end_effector_orientation = rotation.as_euler('xyz', degrees=True)
+    # 
+    # print("Calculated End Effector Position (x, y, z):", tuple(end_effector_position))
+    # print("Calculated End Effector Attitude (p, r, y) in degrees:", tuple(end_effector_orientation))
 
 ################################################################################
 ## Copyright (c) 2023 Brian Costantino 
