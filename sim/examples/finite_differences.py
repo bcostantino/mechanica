@@ -47,4 +47,4 @@ if __name__ == "__main__":
     other_jacobian = calculate_jacobian(forward_kinematics(dh_parameters))
     print('jacobian (finite-differences):\n', jacobian)
     print('\n')
-    print('jacobian (lin-alg):\n', other_jacobian)
+
