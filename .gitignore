@@ -54,6 +54,8 @@ dkms.conf
 # idf related
 sdkconfig*
 
+old/
+
 # build
 build/
 

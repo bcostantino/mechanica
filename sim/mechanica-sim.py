@@ -3,9 +3,10 @@
 ## python forward/inverse kinematics simulator
 ##################################################
 ## Author: Brian Costantino
-## License: MIT, see footer for more info
 ## Version: 0.1.0
+## Last Updated: 06.2023
 ## Status: Active
+## License: MIT, see footer for more info
 ##################################################
 
 import math
@@ -102,17 +103,61 @@ def animate_arm(dh_params, behavior, num_frames = 360):
     data_display_frame = tk.Frame(root)
     data_display_frame.pack()
 
+
+    # initialize controls UI container and contents
     controls_frame = tk.Frame(data_display_frame)
     controls_frame.grid(row=0, column=0, padx=10, pady=10)
 
-    start_pause_button = Button(controls_frame, text="Start/Pause", command=start_pause_simulation)
-    start_pause_button.pack(padx=10)
-
-    restart_button = Button(controls_frame, text="Restart", command=restart_simulation)
-    restart_button.pack(padx=10)
+    # Create a sub-frame for the buttons
+    buttons_frame = tk.Frame(controls_frame)
+    buttons_frame.pack(side="top", pady=10)
     
+    # Create the Start/Pause button
+    start_pause_button = Button(buttons_frame, text="Start/Pause", command=start_pause_simulation)
+    start_pause_button.pack(side="left", padx=10)
+    
+    # Create the Restart button
+    restart_button = Button(buttons_frame, text="Restart", command=restart_simulation)
+    restart_button.pack(side="left", padx=10)
+ 
     timestep_text_box = tk.Text(controls_frame, height=2, width=30, state='disabled')
-    timestep_text_box.pack()
+    timestep_text_box.pack(padx=10, pady=(0, 10))
+    
+    def on_simulation_type_change(selection):
+        if selection == "FK":
+            # Update controls for forward kinematics simulation
+            # Example: Show joint angle expression controls
+            joint_angle_frame.pack()
+            end_effector_frame.pack_forget()
+        elif selection == "IK":
+            # Update controls for inverse kinematics simulation
+            # Example: Show end effector position/orientation controls
+            joint_angle_frame.pack_forget()
+            end_effector_frame.pack()
+
+
+    # Create the dropdown selection for simulation type
+    simulation_types = ["FK", "IK"]  # Add more simulation types if needed
+    selected_simulation_type = tk.StringVar(controls_frame)
+    selected_simulation_type.set(simulation_types[0])  # Set initial simulation type
+    
+    simulation_type_dropdown = tk.OptionMenu(controls_frame, selected_simulation_type, *simulation_types, command=on_simulation_type_change)
+    simulation_type_dropdown.pack(side=tk.LEFT)
+    
+    # Create sub-frames for simulation type specific controls
+    joint_angle_frame = tk.Frame(controls_frame)
+    joint_angle_frame.pack()
+    
+    end_effector_frame = tk.Frame(controls_frame)
+    
+    # Add controls specific to forward kinematics simulation (FK)
+    joint_angle_label = tk.Label(joint_angle_frame, text="Joint Angle Expression:")
+    joint_angle_label.pack()
+    
+    # Add controls specific to inverse kinematics simulation (IK)
+    end_effector_label = tk.Label(end_effector_frame, text="End Effector Position/Orientation:")
+    end_effector_label.pack()
+
 
     # initialize kinematic data tree
     _data_display_frame = tk.Frame(data_display_frame)
@@ -153,7 +198,7 @@ def animate_arm(dh_params, behavior, num_frames = 360):
         joint_angles = np.degrees(joint_angles)
         for i in range(num_joints):
             end_effector_coordinates = end_effector_transformations[i][:3,3]
-            end_effector_orientation = extract_euler_angles(end_effector_transformations[i])
+            end_effector_orientation = extract_euler_angles_zyx(end_effector_transformations[i])
             tree.insert("", "end", text=str(i), values=(f'{joint_angles[i]:.2f}°',
                         str(round(end_effector_coordinates[0], coord_num_digits)),
                         str(round(end_effector_coordinates[1], coord_num_digits)),
@@ -166,15 +211,17 @@ def animate_arm(dh_params, behavior, num_frames = 360):
 
 
     def update(frame):
+        # cmd = 'inverse-kinematics'
         cmd = 'inverse-kinematics'
-        
+
         joint_angles = dh_params[:,3]
         if cmd == 'inverse-kinematics':
-            start = np.array([1, -1, -1])
+            start = np.array([-1, -1, 2])
             end = np.array([1, 1, 2])
             _range = end - start
             target_coords = start + (frame/360) * _range 
-            _joint_angles = inverse_kinematics_dls(dh_params, target_coords)
+            _joint_angles = inverse_kinematics_dls(dh_params, 
+                                                   np.concatenate((target_coords, [math.radians(i) for i in [0, 180, 0]])))
 
             if _joint_angles is not None:
                 joint_angles = _joint_angles
@@ -185,10 +232,12 @@ def animate_arm(dh_params, behavior, num_frames = 360):
             joint_angles = calculate_joint_angles(frame, behavior)
 
         dh_params[:,3] = joint_angles # Update joint angles
-        transformations = forward_kinematics(dh_params)
+        transformations = forward_kinematics(dh_params) # [_T for _T, q in forward_kinematics_quat(dh_params)]
         
         update_plot(dh_params, transformations)
         update_data_display(frame, joint_angles, transformations)
+
+        #input("press <Enter> to update plot...")
 
 
     def update_plot(dh_params, _transformations = None):
@@ -281,14 +330,23 @@ if __name__=='__main__':
         [0, -np.pi/2, 0.5, 0]     # Joint 5: a, alpha, d, theta
     ])
      
-    behavior = [
-        (0, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
-        (-45, 45, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
-        (0, 180, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-        (0, 180, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-        (0, 180, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-    ]
+    # behavior = [
+    #     (0, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
+    #     (-45, 45, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
+    #     (0, 180, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+    #     (0, 180, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+    #     (0, 180, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+    # ]
      
+    behavior = [
+        (-90, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
+        (-90, 90, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
+        (0, 0, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+        (0, 0, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+        (0, 0, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+    ]
+
+
     animation_running = True
     animation = None
     
@@ -296,42 +354,6 @@ if __name__=='__main__':
     pretty_print_matrix(dh_parameters)
     animate_arm(dh_parameters, behavior)
     
-    # import numpy as np
-    # from scipy.spatial.transform import Rotation as R
-    # 
-    # # DH parameters
-    # dh_parameters = [
-    #     [0, np.pi/2, 0.5, 0],   # Joint 1: a, alpha, d, theta
-    #     [1, 0, 0, 0],           # Joint 2: a, alpha, d, theta
-    #     [1, 0, 0, 0],           # Joint 3: a, alpha, d, theta
-    #     [0, np.pi/2, 0, 0],     # Joint 4: a, alpha, d, theta
-    #     [0, -np.pi/2, 0.5, 0]   # Joint 5: a, alpha, d, theta
-    # ]
-    # 
-    # # Joint angles in radians
-    # joint_angles = np.radians([15, 30, 150, 30, 150])
-    # 
-    # # Transformation matrices for each joint
-    # transform_matrices = []
-    # for i in range(len(dh_parameters)):
-    #     a, alpha, d, theta = dh_parameters[i]
-    #     transform_matrix = dh_transform(a, alpha, d, theta + joint_angles[i])
-    #     transform_matrices.append(transform_matrix)
-    # 
-    # # End effector transformation matrix
-    # end_effector_matrix = np.eye(4)
-    # for transform_matrix in transform_matrices:
-    #     end_effector_matrix = np.dot(end_effector_matrix, transform_matrix)
-    # 
-    # # Extract position from the end effector transformation matrix
-    # end_effector_position = end_effector_matrix[:3, 3]
-    # 
-    # # Extract orientation (roll, pitch, yaw) from the end effector transformation matrix
-    # rotation = R.from_matrix(end_effector_matrix[:3, :3])
-    # end_effector_orientation = rotation.as_euler('xyz', degrees=True)
-    # 
-    # print("Calculated End Effector Position (x, y, z):", tuple(end_effector_position))
-    # print("Calculated End Effector Attitude (p, r, y) in degrees:", tuple(end_effector_orientation))
 
 ################################################################################
 ## Copyright (c) 2023 Brian Costantino 

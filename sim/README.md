@@ -26,71 +26,25 @@ The Jacobian relates the changes in joint angles to the resulting changes in the
 
 
 
+### Issues
+
+1. **Gimbal lock / signularities** - With end-effector orientation being represented by euler angles (roll, pitch & yaw) there are *ambiguities* that occur when the end effector is pointing parallel to the +z or -z axis; both resulting in an end-effector pitch angle of 0°. This can be observed in the 2D xz-plane plot by sweeping the first joint angle 360° and monitoring the end effector pitch during the simulation. When pointing in +x and -x the pitch is 90° and -90° respectively, but the singularity always occurs at expected 0° and 180° pitch attitudes. This issue causes the IK algorithm to be unable to converge on the correct orientation.
+
+    To fix, represent angles using quaternions. When using quaternions, the pitch ambiguity problem can be resolved, as quaternions can represent any orientation without gimbal lock or singularities. The advantage lies in their ability to represent orientations in a continuous and non-redundant manner, providing a complete and unique representation of rotations in three-dimensional space. The Jacobian matrix, when extended to include quaternion components, allows for the calculation of the rotational error between the desired and current orientations using quaternion algebra. The error is then used to update the joint angles based on the inverse kinematics algorithm.
+
+
+
+
+
+
 
 
 ### TODO
 
-1. Damped Least Squares: Instead of using the pseudo-inverse directly, you can incorporate damping into the calculation. This helps to reduce the amplification of small errors and can improve convergence. The damped least squares method involves adding a damping term to the diagonal elements of the Jacobian matrix before calculating the pseudo-inverse.
-
-2. Levenberg-Marquardt Method: The Levenberg-Marquardt algorithm is an optimization method commonly used for nonlinear least squares problems. It combines aspects of both the Gauss-Newton method and the gradient descent method. This method can provide faster convergence and better stability in some cases.
-
-3. Null Space Control: If you have multiple objectives or constraints in your inverse kinematics problem, such as avoiding joint limits or optimizing secondary objectives, you can use null space control. It involves projecting the desired task-space motion into the null space of the primary task to achieve secondary objectives while maintaining the primary task. This allows for more flexible and robust control.
 
 
-```js
-function inverseKinematics(dh_parameters, end_effector, threshold):
-    num_joints = length(dh_parameters)
-    joint_angles = initializeJointAngles(num_joints)  // Initialize joint angles to an initial guess
+- [x] Damped Least Squares: Instead of using the pseudo-inverse directly, you can incorporate damping into the calculation. This helps to reduce the amplification of small errors and can improve convergence. The damped least squares method involves adding a damping term to the diagonal elements of the Jacobian matrix before calculating the pseudo-inverse.
+- [ ] Levenberg-Marquardt Method: The Levenberg-Marquardt algorithm is an optimization method commonly used for nonlinear least squares problems. It combines aspects of both the Gauss-Newton method and the gradient descent method. This method can provide faster convergence and better stability in some cases.
+- [ ] If there are multiple objectives or constraints in the inverse kinematics problem, such as avoiding joint limits or optimizing secondary objectives, you can use null space control. It involves projecting the desired task-space motion into the null space of the primary task to achieve secondary objectives while maintaining the primary task. This allows for more flexible and robust control.
+- [ ] In IK, add control to minimize torque on each joint for the final position
 
-    do:
-        forward_kinematics = calculateForwardKinematics(dh_parameters, joint_angles)
-        error_position = calculatePositionError(forward_kinematics, end_effector)
-        error_orientation = calculateOrientationError(forward_kinematics, end_effector)
-        error = concatenateErrors(error_position, error_orientation)
-
-        if isWithinThreshold(error, threshold):
-            break  // End if error is within the threshold
-
-        jacobian = calculateJacobian(dh_parameters, joint_angles)
-        delta_theta = calculateDeltaTheta(jacobian, error)
-
-        joint_angles = updateJointAngles(joint_angles, delta_theta)
-    while true  // Repeat until the error is within the threshold
-
-    return joint_angles
-
-function calculateForwardKinematics(dh_parameters, joint_angles):
-    // Perform forward kinematics to calculate the end effector's position and orientation
-    // based on the DH parameters and joint angles
-    // Return the resulting transformation matrix representing the end effector's pose
-
-function calculatePositionError(forward_kinematics, end_effector):
-    // Calculate the position error between the expected and actual end effector position
-    // Return the position error as a 3D vector
-
-function calculateOrientationError(forward_kinematics, end_effector):
-    // Calculate the orientation error between the expected and actual end effector orientation
-    // Return the orientation error as a 3D vector representing the differences in pitch, roll, and yaw
-
-function concatenateErrors(error_position, error_orientation):
-    // Concatenate the position and orientation errors into a single vector
-    // Return the concatenated error vector
-
-function isWithinThreshold(error, threshold):
-    // Check if the error is within the specified threshold
-    // Return true if the error is within the threshold, false otherwise
-
-function calculateJacobian(dh_parameters, joint_angles):
-    // Calculate the Jacobian matrix based on the DH parameters and joint angles
-    // Return the Jacobian matrix
-
-function calculateDeltaTheta(jacobian, error):
-    // Calculate the change in joint angles (delta_theta) using the Jacobian and error
-    // Return the delta_theta as a vector of joint angle changes
-
-function updateJointAngles(joint_angles, delta_theta):
-    // Update the joint angles by adding the delta_theta to the current joint angles
-    // Return the updated joint angles
-
-
-```
