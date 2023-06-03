@@ -3,9 +3,10 @@
 ## python forward/inverse kinematics simulator
 ##################################################
 ## Author: Brian Costantino
-## License: MIT, see footer for more info
 ## Version: 0.1.0
+## Last Updated: 06.2023
 ## Status: Active
+## License: MIT, see footer for more info
 ##################################################
 
 import math
@@ -21,32 +22,17 @@ from tkinter import ttk, Button
 
 from src.kinematics import *
 
+
+
+is_kinematic_data_rendered: bool = False
+
+
 def pretty_print_matrix(matrix):
     s = [[str(e) for e in row] for row in matrix]
     lens = [max(map(len, col)) for col in zip(*s)]
     fmt = '\t'.join('{{:{}}}'.format(x) for x in lens)
     table = [fmt.format(*row) for row in s]
     print('\n'.join(table))
-
-def extract_euler_angles(rotation_matrix: list[list[float]]) -> list[float]:
-    # Calculate the sin of the pitch angle
-    sy = math.sqrt(rotation_matrix[0][0] * rotation_matrix[0][0] + rotation_matrix[1][0] * rotation_matrix[1][0])
-
-    if sy > 1e-6:
-        # Case when sy is not close to zero
-        # Calculate roll, pitch, and yaw using atan2
-        roll = math.atan2(rotation_matrix[2][1], rotation_matrix[2][2])
-        pitch = math.atan2(-rotation_matrix[2][0], sy)
-        yaw = math.atan2(rotation_matrix[1][0], rotation_matrix[0][0])
-    else:
-        # Case when sy is close to zero (singularity)
-        # Set yaw to 0 and calculate roll and pitch
-        roll = math.atan2(-rotation_matrix[1][2], rotation_matrix[1][1])
-        pitch = math.atan2(-rotation_matrix[2][0], sy)
-        yaw = 0.0
-
-    # Return Euler angles as [pitch, roll, yaw]
-    return [roll, pitch, yaw]
 
 def weight_matrix(matrix, weight_vector):
     # Ensure that the dimensions match
@@ -56,90 +42,6 @@ def weight_matrix(matrix, weight_vector):
     weighted_matrix = matrix * weight_vector[:, np.newaxis]
 
     return weighted_matrix
-
-
-def inverse_kinematics(dh_parameters, end_effector, weights = None):
-    # print('starting inverse kinemetics for end effector position: ', end_effector[:3])
-
-    # Extract the number of joints
-    num_joints = len(dh_parameters)
-    weights = np.array([1,1,1,0,0,0]) if weights is None else weights
-
-    # Initialize the joint angles
-    theta = dh_parameters[:,3] # np.zeros(num_joints)
-
-    # Set the convergence threshold, step size and maximum iterations
-    threshold = 1e-6
-    max_iterations = 100
-
-    # Initialize the iteration counter and the error
-    iterations = 0
-    error = np.inf
-
-
-    # define weights for position and orientation components
-    pos_weight = weights[:3] # 1.0
-    ori_weight = weights[3:] # 0.0
-
-    while error > threshold and iterations < max_iterations:
-        # Perform forward kinematics with the current joint angles
-        transformations = forward_kinematics(dh_parameters)
-        
-        end_effector_translation_vector = transformations[-1][:3,3]
-        end_effector_rotation_matrix = transformations[-1][:3,:3]
-        end_effector_orientation = extract_euler_angles(end_effector_rotation_matrix)
-
-        # Calculate the difference in Euler angles
-        orientation_diff = np.array(end_effector[3:6]) - np.array(end_effector_orientation)
-
-        # calculate the difference in translation vectors
-        translation_diff = end_effector[:3] - end_effector_translation_vector
-
-        # calculate the overall error as the Euclidean distance between the differences
-        error =  np.linalg.norm(np.multiply(pos_weight, translation_diff)) 
-        error += np.linalg.norm(np.multiply(ori_weight, orientation_diff))
-        if error <= threshold:
-            break
-
-        # Calculate the Jacobian matrix
-        jacobian = calculate_jacobian_fin_diff(dh_parameters) # calculate_jacobian(transformations)
-        j_pos = jacobian[:3,:]
-        j_ori = jacobian[3:,:]
-
-        # Update the joint angles using the pseudoinverse of the Jacobian
-        # delta_theta = np.linalg.pinv(jacobian[:3,:]) @ (translation_diff)
-        #delta_theta =  np.linalg.pinv(weight_matrix(j_pos, pos_weight)) @ translation_diff
-        #delta_theta += np.linalg.pinv(weight_matrix(j_ori, ori_weight)) @ orientation_diff
-
-        delta_theta =  np.linalg.pinv(j_pos) @ np.multiply(pos_weight, translation_diff)
-        delta_theta += np.linalg.pinv(j_ori) @ np.multiply(ori_weight, orientation_diff)
-        
-        theta += delta_theta
-
-        # print(f'interation #{iterations}:')
-        # print('desired end effector position:', end_effector[0:3])  # current_end_effector)
-        # print('desired end effector orientation: ', end_effector[3:6])
-        # print('working theta: ', dh_parameters[:num_joints][3])
-        # print(f'end effector position: ({", ".join(str(round(i, 2)) for i in end_effector_translation_vector)})')
-        # print('end effector position: ', end_effector_orientation)
-        # print('error: ', error)
-        # print('new theta: ', theta)
-        # print('\n')
-
-        # Update the DH parameters
-        #for i in range(num_joints):
-        #    dh_parameters[i][3] = theta[i] # dh_parameters[:num_joints][3] = theta
-        dh_parameters[:,3] = theta
-        iterations += 1
-
-    if iterations == max_iterations:
-        print("[WARN]: Inverse kinematics did not converge... last error: ", error)
-    else:
-        print(f'[INFO]: Converged after {iterations} iterations; last error: ', error)
-        print(f'[INFO]: Achieved final end effector position: ({", ".join(str(round(i, 4)) for i in end_effector_translation_vector)})',
-              f'theta: ({", ".join(str(round(math.degrees(i), 4)) + "°" for i in theta)})')
-
-    return theta
 
 def calculate_joint_angles(frame, behavior):
     """Calculate joint angles based on the desired behavior"""
@@ -152,7 +54,220 @@ def calculate_joint_angles(frame, behavior):
             joint_angles[i] = np.radians(start_angle + (frame / 180) * angle_range)
         else:
             joint_angles[i] = np.radians(end_angle - (frame / 180) * angle_range)
+
     return joint_angles
+
+
+def start_pause_simulation():
+    global animation, animation_running
+    if animation is None or animation.event_source is None:
+        return
+        
+    if animation_running:
+        animation.event_source.stop()  # Pause the animation
+    else:
+        animation.event_source.start()  # Resume the animation
+    animation_running = not animation_running
+    return animation_running
+
+def restart_simulation():
+    global animation
+    if animation is not None:
+        animation.frame_seq = animation.new_frame_seq() # reset animation frame sequence
+
+def on_simulation_type_change(type: str) -> None:
+    print(f"simulation type changed to {type}")
+
+
+def update_readonly_textbox(textbox: tk.Text, text: str):
+    textbox.configure(state='normal')  # Enable text box for modification
+    textbox.delete('1.0', tk.END)  # Clear previous contents
+    textbox.insert(tk.END, text)  # Insert new text
+    textbox.configure(state='disabled')  # Disable text box for readonly
+
+
+
+
+def create_window():
+
+    # Create the main application window
+    root = tk.Tk()
+    root.title("Arm Simulation")
+    root.geometry("1200x1000")
+ 
+    # create a frame to hold the plots
+    plots_frame = ttk.Frame(root, width=600, height=500)
+    plots_frame.pack(side=tk.TOP, pady=10)
+
+
+    # THE FOLLOWING PLOT STUFF CAN MAYBE BE MOVED OUT OF THIS FUNCTION
+
+    # create the plot figure 
+    fig =  plt.figure(figsize=(8, 6))
+    
+    # create a gridspec layout with 2 rows and 2 columns
+    gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1], height_ratios=[1, 1])
+    
+    # create the plot objects
+    ax_3d = fig.add_subplot(gs[0,1], projection='3d')
+    ax_xy = fig.add_subplot(gs[0,0])
+    ax_xz = fig.add_subplot(gs[1,0])
+    ax_yz = fig.add_subplot(gs[1,1])
+
+    # set aspect ratio for 2d plots
+    ax_xy.set_box_aspect(1)
+    ax_xz.set_box_aspect(1)
+    ax_yz.set_box_aspect(1)
+
+    # create container for data
+    data_display_frame = tk.Frame(root)
+    data_display_frame.pack()
+
+    
+    ######################################################
+    # Controls
+    #######################################################
+
+    # initialize controls UI container and contents
+    controls_frame = tk.Frame(data_display_frame)
+    controls_frame.grid(row=0, column=0, padx=10, pady=10)
+
+    # Create a sub-frame for the buttons
+    buttons_frame = tk.Frame(controls_frame)
+    buttons_frame.pack(side="top", pady=10)
+
+    def _start_pause_sim():
+        # start_pause_simulation()
+        start_pause_button.config(text="Pause" if start_pause_simulation() else "Start")
+    
+
+    def _on_sim_type_change(selection):
+        if selection == "FK":
+            # Update controls for forward kinematics simulation
+            # Example: Show joint angle expression controls
+            joint_angle_frame.pack()
+            end_effector_frame.pack_forget()
+        elif selection == "IK":
+            # Update controls for inverse kinematics simulation
+            # Example: Show end effector position/orientation controls
+            joint_angle_frame.pack_forget()
+            end_effector_frame.pack()
+        else:
+            return
+
+        on_simulation_type_change(selection)
+
+    # Create the Start/Pause button
+    start_pause_button = Button(buttons_frame, text="Pause", command=_start_pause_sim)
+    start_pause_button.pack(side="left", padx=10)
+    
+    # Create the Restart button
+    restart_button = Button(buttons_frame, text="Restart", command=restart_simulation)
+    restart_button.pack(side="left", padx=10)
+ 
+    timestep_text_box = tk.Text(controls_frame, height=2, width=30, state='disabled')
+    timestep_text_box.pack(padx=10, pady=(0, 10))
+    
+    # Create the dropdown selection for simulation type
+    simulation_types = ["FK", "IK"]  # Add more simulation types if needed
+    selected_simulation_type = tk.StringVar(controls_frame)
+    selected_simulation_type.set(simulation_types[0])  # Set initial simulation type
+    
+    simulation_type_dropdown = tk.OptionMenu(controls_frame, selected_simulation_type, 
+                                             *simulation_types, command=_on_sim_type_change)
+    simulation_type_dropdown.pack(side=tk.LEFT)
+    
+    # Create sub-frames for simulation type specific controls
+    joint_angle_frame = tk.Frame(controls_frame)
+    joint_angle_frame.pack()
+    
+    end_effector_frame = tk.Frame(controls_frame)
+    
+    # Add controls specific to forward kinematics simulation (FK)
+    joint_angle_label = tk.Label(joint_angle_frame, text="Joint Angle Expression:")
+    joint_angle_label.pack()
+    
+    # Add controls specific to inverse kinematics simulation (IK)
+    end_effector_label = tk.Label(end_effector_frame, text="End Effector Position/Orientation:")
+    end_effector_label.pack()
+    
+
+    ######################################################
+    # Kinematic Data
+    #######################################################
+    
+    # initialize kinematic data container
+    _data_display_frame = tk.Frame(data_display_frame)
+    _data_display_frame.grid(row=0, column=1, padx=10, pady=10)
+
+    # create end effector display
+    ttk.Label(_data_display_frame, text="End Effector").pack(side=tk.TOP)
+    end_effector_text_box = tk.Text(_data_display_frame, height=2, width=50, state='disabled')
+
+    def render_kinematic_data_display(render: bool, num_joints: int):
+        global is_kinematic_data_rendered
+
+        # break if widget already in target state
+        if is_kinematic_data_rendered == render:
+            return
+        
+        # hide kinematic data
+        if is_kinematic_data_rendered:
+            _list = _data_display_frame.grid_slaves()
+            for l in _list:
+                l.destroy()
+
+        # show kinematic data
+        else:
+            end_effector_text_box.pack()
+
+            # create joint table
+            ttk.Label(_data_display_frame, text="Kinematic Data").pack(side=tk.TOP)
+            tree = ttk.Treeview(_data_display_frame, height=num_joints)
+            tree["columns"] = ("θ", "X", "Y", "Z")
+
+            tree.heading("#0", text="Joint")
+            tree.column("#0", width=50, anchor="center")
+            for column in tree["columns"]:
+                tree.heading(column, text=column)
+                tree.column(column, width=80, anchor="center")
+            
+            tree.pack()
+
+        
+        is_kinematic_data_rendered = not is_kinematic_data_rendered
+        return is_kinematic_data_rendered
+
+
+    def update_kinematic_data_display():
+        pass
+
+    # Create the FigureCanvasTkAgg widget
+    canvas = FigureCanvasTkAgg(fig, master=plots_frame)
+    canvas.draw()
+    
+    # register mouse hover event for inverse kinematics
+    canvas.mpl_connect('motion_notify_event', mouse_move)
+
+    # Embed the plot in the Tkinter window
+    canvas.get_tk_widget().pack()
+
+    # Create animation
+    animation = FuncAnimation(fig, update, frames=num_frames, interval=50, blit=False)
+
+    # Start the main Tkinter event loop
+    root.mainloop()
+
+
+
+
+
+
+
+
+
+
+
 
 def animate_arm(dh_params, behavior, num_frames = 360):
     global animation_running, animation
@@ -174,12 +289,12 @@ def animate_arm(dh_params, behavior, num_frames = 360):
     # Create a gridspec layout with 2 rows and 2 columns
     gs = gridspec.GridSpec(2, 2, width_ratios=[1, 1], height_ratios=[1, 1])
     
-    ax_3d = fig.add_subplot(gs[0,0], projection='3d')
+    ax_3d = fig.add_subplot(gs[0,1], projection='3d')
 
     # create the 2D plots
-    ax_xy = fig.add_subplot(gs[0,1])
-    ax_yz = fig.add_subplot(gs[1,0])
-    ax_xz = fig.add_subplot(gs[1,1])
+    ax_xy = fig.add_subplot(gs[0,0])
+    ax_xz = fig.add_subplot(gs[1,0])
+    ax_yz = fig.add_subplot(gs[1,1])
 
     ax_xy.set_box_aspect(1)  # set aspect ratio for xy subplot
     ax_xz.set_box_aspect(1)  # set aspect ratio for xz subplot
@@ -205,17 +320,61 @@ def animate_arm(dh_params, behavior, num_frames = 360):
     data_display_frame = tk.Frame(root)
     data_display_frame.pack()
 
+
+    # initialize controls UI container and contents
     controls_frame = tk.Frame(data_display_frame)
     controls_frame.grid(row=0, column=0, padx=10, pady=10)
 
-    start_pause_button = Button(controls_frame, text="Start/Pause", command=start_pause_simulation)
-    start_pause_button.pack(padx=10)
-
-    restart_button = Button(controls_frame, text="Restart", command=restart_simulation)
-    restart_button.pack(padx=10)
+    # Create a sub-frame for the buttons
+    buttons_frame = tk.Frame(controls_frame)
+    buttons_frame.pack(side="top", pady=10)
     
+    # Create the Start/Pause button
+    start_pause_button = Button(buttons_frame, text="Start/Pause", command=start_pause_simulation)
+    start_pause_button.pack(side="left", padx=10)
+    
+    # Create the Restart button
+    restart_button = Button(buttons_frame, text="Restart", command=restart_simulation)
+    restart_button.pack(side="left", padx=10)
+ 
     timestep_text_box = tk.Text(controls_frame, height=2, width=30, state='disabled')
-    timestep_text_box.pack()
+    timestep_text_box.pack(padx=10, pady=(0, 10))
+    
+    def on_simulation_type_change(selection):
+        if selection == "FK":
+            # Update controls for forward kinematics simulation
+            # Example: Show joint angle expression controls
+            joint_angle_frame.pack()
+            end_effector_frame.pack_forget()
+        elif selection == "IK":
+            # Update controls for inverse kinematics simulation
+            # Example: Show end effector position/orientation controls
+            joint_angle_frame.pack_forget()
+            end_effector_frame.pack()
+
+
+    # Create the dropdown selection for simulation type
+    simulation_types = ["FK", "IK"]  # Add more simulation types if needed
+    selected_simulation_type = tk.StringVar(controls_frame)
+    selected_simulation_type.set(simulation_types[0])  # Set initial simulation type
+    
+    simulation_type_dropdown = tk.OptionMenu(controls_frame, selected_simulation_type, *simulation_types, command=on_simulation_type_change)
+    simulation_type_dropdown.pack(side=tk.LEFT)
+    
+    # Create sub-frames for simulation type specific controls
+    joint_angle_frame = tk.Frame(controls_frame)
+    joint_angle_frame.pack()
+    
+    end_effector_frame = tk.Frame(controls_frame)
+    
+    # Add controls specific to forward kinematics simulation (FK)
+    joint_angle_label = tk.Label(joint_angle_frame, text="Joint Angle Expression:")
+    joint_angle_label.pack()
+    
+    # Add controls specific to inverse kinematics simulation (IK)
+    end_effector_label = tk.Label(end_effector_frame, text="End Effector Position/Orientation:")
+    end_effector_label.pack()
+
 
     # initialize kinematic data tree
     _data_display_frame = tk.Frame(data_display_frame)
@@ -266,60 +425,20 @@ def animate_arm(dh_params, behavior, num_frames = 360):
         end_effector_text += f'ATT[rpy]: ({", ".join(str(round(math.degrees(i), 2)) + "°" for i in end_effector_orientation)})'
         update_readonly_textbox(end_effector_text_box, end_effector_text)
 
-    def update_old(frame):
-        print(f'[DBG]: Figure animation frame #{frame}')
-        cmd = 'inverse-kinematics' 
-        
-        joint_angles = dh_params[:,3]
-        if cmd == 'inverse-kinematics':
-            joint_angles = inverse_kinematics(dh_params, np.array([0.5,1.2,1,0,0,0]))
 
-            if joint_angles is not None:
-                print('got joint angles: ', joint_angles)
-            
-            input('press to continue...')
 
-        elif cmd == 'forward-kinematics':
-            joint_angles = calculate_joint_angles(frame, behavior)
-
-        #for i in range(num_joints):
-        dh_params[:,3] = joint_angles # Update joint angles
-        transformations = forward_kinematics(dh_params)
-        
-        end_effector_coordinates = calculate_end_effector_coordinates(dh_params)
-        update_data_display(frame, joint_angles, transformations)
-
-        # update arm configuration
-        arm_config = np.zeros((num_joints + 1, 3))
-        arm_config[1:, :] = np.array([T[:3, 3] for T in transformations])
-
-        # calculate arm length
-        arm_length = sum([params[0] for params in dh_params])
-
-        # clear plots
-        ax_3d.clear()
-        ax_xy.clear()
-        ax_yz.clear()
-        ax_xz.clear()
-
-        # update plots
-        plot_arm_3d(ax_3d, arm_config, arm_length)
-        plot_arm_2d(ax_xy, arm_config[:, :2], arm_length, 'X', 'Y')
-        plot_arm_2d(ax_yz, arm_config[:, 1:], arm_length, 'Y', 'Z')
-        plot_arm_2d(ax_xz, np.column_stack((arm_config[:, 0], arm_config[:, 2])), arm_length, 'X', 'Z')
-    
     def update(frame):
-        # print(f'[DBG]: Figure animation frame #{frame}')
-        cmd = 'inverse-kinematics' # 'forward-kinematics' 
-        
+        # cmd = 'inverse-kinematics'
+        cmd = 'forward-kinematics'
+
         joint_angles = dh_params[:,3]
         if cmd == 'inverse-kinematics':
             start = np.array([-1, -1, 2])
             end = np.array([1, 1, 2])
             _range = end - start
-            target_coords = np.concatenate((start + (frame/360) * _range, [-math.pi/2, 0, math.pi/4])) 
-            # np.array([x,1.2,1,0,0,0])
-            _joint_angles = inverse_kinematics(dh_params, target_coords)#, [1,1,1,1,0,0])
+            target_coords = start + (frame/360) * _range 
+            _joint_angles = inverse_kinematics_dls(dh_params, 
+                                                   np.concatenate((target_coords, [math.radians(i) for i in [0, 0, 45]])))
 
             if _joint_angles is not None:
                 joint_angles = _joint_angles
@@ -330,10 +449,12 @@ def animate_arm(dh_params, behavior, num_frames = 360):
             joint_angles = calculate_joint_angles(frame, behavior)
 
         dh_params[:,3] = joint_angles # Update joint angles
-        transformations = forward_kinematics(dh_params)
+        transformations = [_T for _T, q in forward_kinematics_quat(dh_params)]
         
         update_plot(dh_params, transformations)
         update_data_display(frame, joint_angles, transformations)
+
+        #input("press <Enter> to update plot...")
 
 
     def update_plot(dh_params, _transformations = None):
@@ -426,14 +547,23 @@ if __name__=='__main__':
         [0, -np.pi/2, 0.5, 0]     # Joint 5: a, alpha, d, theta
     ])
      
-    behavior = [
-        (0, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
-        (-45, 45, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
-        (0, 180, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-        (0, 180, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-        (0, 180, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-    ]
+    # behavior = [
+    #     (0, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
+    #     (-45, 45, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
+    #     (0, 180, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+    #     (0, 180, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+    #     (0, 180, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+    # ]
      
+    behavior = [
+        (0, 0, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
+        (-90, 90, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
+        (0, 0, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+        (0, 0, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+        (0, 0, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+    ]
+
+
     animation_running = True
     animation = None
     
@@ -441,42 +571,6 @@ if __name__=='__main__':
     pretty_print_matrix(dh_parameters)
     animate_arm(dh_parameters, behavior)
     
-    # import numpy as np
-    # from scipy.spatial.transform import Rotation as R
-    # 
-    # # DH parameters
-    # dh_parameters = [
-    #     [0, np.pi/2, 0.5, 0],   # Joint 1: a, alpha, d, theta
-    #     [1, 0, 0, 0],           # Joint 2: a, alpha, d, theta
-    #     [1, 0, 0, 0],           # Joint 3: a, alpha, d, theta
-    #     [0, np.pi/2, 0, 0],     # Joint 4: a, alpha, d, theta
-    #     [0, -np.pi/2, 0.5, 0]   # Joint 5: a, alpha, d, theta
-    # ]
-    # 
-    # # Joint angles in radians
-    # joint_angles = np.radians([15, 30, 150, 30, 150])
-    # 
-    # # Transformation matrices for each joint
-    # transform_matrices = []
-    # for i in range(len(dh_parameters)):
-    #     a, alpha, d, theta = dh_parameters[i]
-    #     transform_matrix = dh_transform(a, alpha, d, theta + joint_angles[i])
-    #     transform_matrices.append(transform_matrix)
-    # 
-    # # End effector transformation matrix
-    # end_effector_matrix = np.eye(4)
-    # for transform_matrix in transform_matrices:
-    #     end_effector_matrix = np.dot(end_effector_matrix, transform_matrix)
-    # 
-    # # Extract position from the end effector transformation matrix
-    # end_effector_position = end_effector_matrix[:3, 3]
-    # 
-    # # Extract orientation (roll, pitch, yaw) from the end effector transformation matrix
-    # rotation = R.from_matrix(end_effector_matrix[:3, :3])
-    # end_effector_orientation = rotation.as_euler('xyz', degrees=True)
-    # 
-    # print("Calculated End Effector Position (x, y, z):", tuple(end_effector_position))
-    # print("Calculated End Effector Attitude (p, r, y) in degrees:", tuple(end_effector_orientation))
 
 ################################################################################
 ## Copyright (c) 2023 Brian Costantino 
