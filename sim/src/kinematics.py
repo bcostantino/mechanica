@@ -218,8 +218,8 @@ def extract_euler_angles(rotation_matrix: np.ndarray) -> tuple[float, float, flo
 
 def extract_euler_angles_zyx(rotation_matrix: np.ndarray):
     r = R.from_matrix(rotation_matrix[:3,:3])
-    v = r.as_euler('zyx', degrees=False)
-    return (v[1], v[0], v[2])   # roll, pitch, yaw
+    yaw, pitch, roll = r.as_euler('ZYX', degrees=False)
+    return np.array((yaw, pitch, roll))
 
 def inverse_kinematics_jpi(dh_parameters, end_effector):
     """Compute optimal joint angles for DH model and desired end-effector positon using JPI"""

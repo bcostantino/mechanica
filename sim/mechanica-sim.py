@@ -205,14 +205,14 @@ def animate_arm(dh_params, behavior, num_frames = 360):
                         str(round(end_effector_coordinates[2], coord_num_digits))))
         
         end_effector_text = f'POS[xyz]: ({", ".join(str(round(i, 2)) for i in end_effector_coordinates)})\n'
-        end_effector_text += f'ATT[rpy]: ({", ".join(str(round(math.degrees(i), 2)) + "°" for i in end_effector_orientation)})'
+        end_effector_text += f'ATT[ypr]: ({", ".join(str(round(math.degrees(i), 2)) + "°" for i in end_effector_orientation)})'
         update_readonly_textbox(end_effector_text_box, end_effector_text)
 
 
 
     def update(frame):
         # cmd = 'inverse-kinematics'
-        cmd = 'inverse-kinematics'
+        cmd = 'forward-kinematics'
 
         joint_angles = dh_params[:,3]
         if cmd == 'inverse-kinematics':
@@ -221,7 +221,7 @@ def animate_arm(dh_params, behavior, num_frames = 360):
             _range = end - start
             target_coords = start + (frame/360) * _range 
             _joint_angles = inverse_kinematics_dls(dh_params, 
-                                                   np.concatenate((target_coords, [math.radians(i) for i in [0, 180, 0]])))
+                                                   np.concatenate((target_coords, [math.radians(i) for i in [0, -45, 0]])))
 
             if _joint_angles is not None:
                 joint_angles = _joint_angles
@@ -340,9 +340,9 @@ if __name__=='__main__':
      
     behavior = [
         (-90, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
-        (-90, 90, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
+        (0, 0, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
         (0, 0, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
-        (0, 0, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
+        (90, 90, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
         (0, 0, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
     ]
 
