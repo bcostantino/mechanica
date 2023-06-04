@@ -128,6 +128,34 @@ def calculate_end_effector_coordinates(dh_parameters):
 
     return coords
 
+# THIS IS NOT CURRENTLY WORKING
+def extract_euler_angles(rotation_matrix: np.ndarray) -> tuple[float, float, float]:
+    # Calculate the sin of the pitch angle
+    sy = math.sqrt(rotation_matrix[0][0]**2 + rotation_matrix[1][0]**2)
+
+    if sy > 1e-6:
+        # Case when sy is not close to zero
+        # Calculate roll, pitch, and yaw using atan2
+        roll = math.atan2(rotation_matrix[2][1], rotation_matrix[2][2])
+        pitch = math.atan2(-rotation_matrix[2][0], sy)
+        yaw = math.atan2(rotation_matrix[1][0], rotation_matrix[0][0])
+    else:
+        # Case when sy is close to zero (singularity)
+        # Set yaw to 0 and calculate roll and pitch
+        roll = math.atan2(-rotation_matrix[1][2], rotation_matrix[1][1])
+        pitch = math.atan2(-rotation_matrix[2][0], sy)
+        yaw = 0.0
+
+    # Return Euler angles as [pitch, roll, yaw]
+    return (roll, pitch, yaw)
+
+
+def extract_euler_angles_zyx(rotation_matrix: np.ndarray):
+    r = R.from_matrix(rotation_matrix[:3,:3])
+    yaw, pitch, roll = r.as_euler('ZYX', degrees=False)
+    return np.array((yaw, pitch, roll))
+
+# THIS IS NOT CURRENTLY WORKING
 def calculate_jacobian(fk_result):
     # Extract the number of joints
     num_joints = len(fk_result)
@@ -159,7 +187,7 @@ def calculate_jacobian(fk_result):
 
 
 def calculate_jacobian_fin_diff(dh_parameters: np.ndarray, h: float = 1e-6) -> np.ndarray:
-    """Calculate end-effector Jacobian matrix using finite-differences"""
+    """Calculate end-effector Jacobian matrix numerically using finite-differences"""
 
     N = len(dh_parameters)
     jacobian = np.zeros((6, N))
@@ -187,39 +215,6 @@ def calculate_jacobian_fin_diff(dh_parameters: np.ndarray, h: float = 1e-6) -> n
         jacobian[3:6,i] = da_dt
 
     return jacobian
-
-
-def extract_euler_angles(rotation_matrix: np.ndarray) -> tuple[float, float, float]:
-    # Calculate the sin of the pitch angle
-    sy = math.sqrt(rotation_matrix[0][0]**2 + rotation_matrix[1][0]**2)
-
-    if sy > 1e-6:
-        # Case when sy is not close to zero
-        # Calculate roll, pitch, and yaw using atan2
-        roll = math.atan2(rotation_matrix[2][1], rotation_matrix[2][2])
-        pitch = math.atan2(-rotation_matrix[2][0], sy)
-        yaw = math.atan2(rotation_matrix[1][0], rotation_matrix[0][0])
-    else:
-        # Case when sy is close to zero (singularity)
-        # Set yaw to 0 and calculate roll and pitch
-        roll = math.atan2(-rotation_matrix[1][2], rotation_matrix[1][1])
-        pitch = math.atan2(-rotation_matrix[2][0], sy)
-        yaw = 0.0
-
-    # Return Euler angles as [pitch, roll, yaw]
-    return (roll, pitch, yaw)
-
-# def extract_euler_angles_zyx(rotation_matrix: np.ndarray) -> tuple[float, float, float]:
-#     yaw = math.atan2(rotation_matrix[1][0], rotation_matrix[0][0])
-#     pitch = math.atan2(-rotation_matrix[2][0], math.sqrt(rotation_matrix[2][1]**2 + rotation_matrix[2][2]**2))
-#     roll = math.atan2(rotation_matrix[2][1], rotation_matrix[2][2])
-# 
-#     return (yaw, pitch, roll)
-
-def extract_euler_angles_zyx(rotation_matrix: np.ndarray):
-    r = R.from_matrix(rotation_matrix[:3,:3])
-    yaw, pitch, roll = r.as_euler('ZYX', degrees=False)
-    return np.array((yaw, pitch, roll))
 
 def inverse_kinematics_jpi(dh_parameters, end_effector):
     """Compute optimal joint angles for DH model and desired end-effector positon using JPI"""
