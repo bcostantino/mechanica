@@ -203,9 +203,11 @@ def create_window():
     # create end effector display
     ttk.Label(_data_display_frame, text="End Effector").pack(side=tk.TOP)
     end_effector_text_box = tk.Text(_data_display_frame, height=2, width=50, state='disabled')
+    tree = ttk.Treeview()
 
     def render_kinematic_data_display(render: bool, num_joints: int):
         global is_kinematic_data_rendered
+        nonlocal tree
 
         # break if widget already in target state
         if is_kinematic_data_rendered == render:
@@ -239,24 +241,26 @@ def create_window():
         return is_kinematic_data_rendered
 
 
-    def update_kinematic_data_display():
+    def set_kinematic_data_display():
         pass
 
     # Create the FigureCanvasTkAgg widget
-    canvas = FigureCanvasTkAgg(fig, master=plots_frame)
-    canvas.draw()
+    # canvas = FigureCanvasTkAgg(fig, master=plots_frame)
+    # canvas.draw()
     
     # register mouse hover event for inverse kinematics
-    canvas.mpl_connect('motion_notify_event', mouse_move)
+    # canvas.mpl_connect('motion_notify_event', mouse_move)
 
     # Embed the plot in the Tkinter window
-    canvas.get_tk_widget().pack()
+    # canvas.get_tk_widget().pack()
 
     # Create animation
-    animation = FuncAnimation(fig, update, frames=num_frames, interval=50, blit=False)
+    # animation = FuncAnimation(fig, update, frames=num_frames, interval=50, blit=False)
 
     # Start the main Tkinter event loop
-    root.mainloop()
+    # root.mainloop()
+
+    return root, tree, render_kinematic_data_display, set_kinematic_data_display
 
 
 
@@ -429,7 +433,7 @@ def animate_arm(dh_params, behavior, num_frames = 360):
 
     def update(frame):
         # cmd = 'inverse-kinematics'
-        cmd = 'forward-kinematics'
+        cmd = 'inverse-kinematics'
 
         joint_angles = dh_params[:,3]
         if cmd == 'inverse-kinematics':
@@ -556,8 +560,9 @@ if __name__=='__main__':
     # ]
      
     behavior = [
+        (-90, 90, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
         (0, 0, 'clockwise'),  # Joint 1 sweeps from 0° to 90° in a clockwise direction
-        (-90, 90, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
+        #(-90, 90, 'counterclockwise'),  # Joint 2 sweeps from -45° to 45° in a counterclockwise direction
         (0, 0, 'counterclockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
         (0, 0, 'clockwise'),  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
         (0, 0, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
@@ -569,7 +574,14 @@ if __name__=='__main__':
     
     print('[INFO]: Initial DH parameters:')
     pretty_print_matrix(dh_parameters)
-    animate_arm(dh_parameters, behavior)
+
+    root, tree, render_kinematic_data_display, set_kinematic_data_display = create_window()
+    
+    render_kinematic_data_display(True, 5)
+    
+    root.mainloop()
+
+    # animate_arm(dh_parameters, behavior)
     
 
 ################################################################################

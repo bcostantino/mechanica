@@ -328,6 +328,75 @@ def inverse_kinematics_dls(dh_parameters: np.ndarray, end_effector: np.ndarray) 
 
     return theta
 
+def _inverse_kinematics(method: str, dh_parameters: np.ndarray, target_pose: np.ndarray):
+    """Compute optimal joint angles to achieve target end-effector pose"""
+
+    # Initialize the joint angles
+    theta = dh_parameters[:,3]
+
+    # Set the convergence threshold, step size and maximum iterations
+    threshold = 1e-6
+    max_iterations = 100
+
+    # Initialize the iteration counter and the error
+    iterations = 0
+    error = np.inf
+
+    while error > threshold and iterations < max_iterations:
+        
+        pose_weights = np.array([1,1,1,0,1,0])
+
+        # perform forward kinematics with the current joint angles
+        transformations = forward_kinematics(dh_parameters)
+        current_position = transformations[-1][:3,3]
+        current_orientation = extract_euler_angles_zyx(transformations[-1][:3,:3])
+        current_pose = np.concatenate((current_position, current_orientation))
+
+        # calculate the difference in translation vectors
+        #translation_diff = end_effector[:3] - end_effector_translation_vector
+        #_translation_diff = np.multiply([1,1,1], translation_diff)
+
+        #orientation_diff = end_effector[3:] - end_effector_orientation
+        #_orientation_diff = np.multiply([0,1,0], orientation_diff)
+
+        # calculate the overall error as the Euclidean distance between the differences 
+        # print(translation_diff, _translation_diff)
+        # print(orientation_diff, _orientation_diff)
+        error_vector = np.concatenate((_translation_diff, _orientation_diff))
+        error =  np.linalg.norm(error_vector)
+        if error <= threshold:
+            break
+
+        # Calculate the Jacobian matrix
+        jacobian = calculate_jacobian_fin_diff(dh_parameters)
+
+        # update the joint angles using the pseudo-inverse of the Jacobian
+        # delta_theta = np.linalg.pinv(jacobian[:3,:]) @ (translation_diff)
+        j = jacobian # [:3,:]
+
+        delta_theta = j.T @ np.linalg.inv(j @ j.T + damping_constant**2 * np.eye(6)) @ error_vector
+
+        theta += delta_theta
+
+        # update the DH parameters
+        dh_parameters[:,3] = theta
+        iterations += 1
+
+
+
+
+    if iterations == max_iterations:
+        print("[WARN]: Inverse kinematics did not converge... last error: ", error)
+    #else:
+        #print(f'[INFO]: Converged after {iterations} iterations; last error: ', error)
+        #print(f'[INFO]: Achieved final end effector position: ({", ".join(str(round(i, 4)) for i in end_effector_translation_vector)})',
+        #      f'theta: ({", ".join(str(round(math.degrees(i), 4)) + "°" for i in theta)})')
+
+    return theta
+
+
+
+
 ################################################################################
 ## Copyright (c) 2023 Brian Costantino 
 ## 
