@@ -21,6 +21,7 @@ import tkinter as tk
 from tkinter import ttk, Button
 
 from src.kinematics import *
+#from src.kinematics import _inverse_kinematics
 
 def pretty_print_matrix(matrix):
     s = [[str(e) for e in row] for row in matrix]
@@ -212,7 +213,7 @@ def animate_arm(dh_params, behavior, num_frames = 360):
 
     def update(frame):
         # cmd = 'inverse-kinematics'
-        cmd = 'forward-kinematics'
+        cmd = 'inverse-kinematics'
 
         joint_angles = dh_params[:,3]
         if cmd == 'inverse-kinematics':
@@ -220,8 +221,10 @@ def animate_arm(dh_params, behavior, num_frames = 360):
             end = np.array([1, 1, 2])
             _range = end - start
             target_coords = start + (frame/360) * _range 
-            _joint_angles = inverse_kinematics_dls(dh_params, 
-                                                   np.concatenate((target_coords, [math.radians(i) for i in [0, -45, 0]])))
+            target_pose = np.concatenate((target_coords, [math.radians(i) for i in [0, 45, 0]]))
+            
+            #_joint_angles = inverse_kinematics_dls(dh_params, target_pose)
+            _joint_angles = inverse_kinematics_('dls', dh_params, target_pose, damping_constant=0.01)
 
             if _joint_angles is not None:
                 joint_angles = _joint_angles
