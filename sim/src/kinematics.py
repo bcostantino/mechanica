@@ -216,131 +216,93 @@ def calculate_jacobian_fin_diff(dh_parameters: np.ndarray, h: float = 1e-6) -> n
 
     return jacobian
 
-def inverse_kinematics_jpi(dh_parameters, end_effector):
-    """Compute optimal joint angles for DH model and desired end-effector positon using JPI"""
 
-    # Initialize the joint angles
-    theta = dh_parameters[:,3] # np.zeros(num_joints)
-
-    # Set the convergence threshold, step size and maximum iterations
-    threshold = 1e-6
-    max_iterations = 100
-
-    # Initialize the iteration counter and the error
-    iterations = 0
-    error = np.inf
-
-    while error > threshold and iterations < max_iterations:
-        
-        # perform forward kinematics with the current joint angles
-        transformations = forward_kinematics(dh_parameters)        
-        end_effector_translation_vector = transformations[-1][:3,3]
-
-        # calculate the difference in translation vectors
-        translation_diff = end_effector - end_effector_translation_vector
-
-        # calculate the overall error as the Euclidean distance between the differences
-        error =  np.linalg.norm(translation_diff) 
-        if error <= threshold:
-            break
-
-        # Calculate the Jacobian matrix
-        jacobian = calculate_jacobian_fin_diff(dh_parameters)
-
-        # update the joint angles using the pseudoinverse of the Jacobian
-        delta_theta = np.linalg.pinv(jacobian[:3,:]) @ (translation_diff)
-        theta += delta_theta
-
-        # update the DH parameters
-        dh_parameters[:,3] = theta
-        iterations += 1
-
-    if iterations == max_iterations:
-        print("[WARN]: Inverse kinematics did not converge... last error: ", error)
-    #else:
-        #print(f'[INFO]: Converged after {iterations} iterations; last error: ', error)
-        #print(f'[INFO]: Achieved final end effector position: ({", ".join(str(round(i, 4)) for i in end_effector_translation_vector)})',
-        #      f'theta: ({", ".join(str(round(math.degrees(i), 4)) + "°" for i in theta)})')
-
-    return theta
-
-def inverse_kinematics_dls(dh_parameters: np.ndarray, end_effector: np.ndarray) -> np.ndarray:
+def update_joint_angles(theta, delta_theta, joint_limits):
     """
-    Compute optimal joint angles for DH model and desired end-effector 
-    positon / orienation using damped least squares
-    """
+    Updates the joint angles 'theta' with the desired change 'delta_theta' while considering the joint limits.
     
-    # Initialize the joint angles
-    theta = dh_parameters[:,3] # np.zeros(num_joints)
+    Args:
+        theta (numpy.ndarray): Current joint angles.
+        delta_theta (numpy.ndarray): Desired change in joint angles.
+        joint_limits (list): Joint limits represented as a list of tuples (lower_bound, upper_bound).
+        
+    Returns:
+        numpy.ndarray: Updated joint angles within the specified limits.
+    """
+    new_theta = theta + delta_theta
+    for i in range(len(theta)):
+        lower_bound, upper_bound = joint_limits[i]
+        
+        # Check if the desired change exceeds the joint limits
+        if delta_theta[i] > 0 and new_theta[i] > upper_bound:
+            # Reverse the desired change and adjust the joint angle
+            new_theta[i] = upper_bound - (new_theta[i] - upper_bound)
+        elif delta_theta[i] < 0 and new_theta[i] < lower_bound:
+            # Reverse the desired change and adjust the joint angle
+            new_theta[i] = lower_bound - (new_theta[i] - lower_bound)
+        
+        # Ensure the updated joint angle stays within the limits
+        if new_theta[i] < lower_bound:
+            new_theta[i] = lower_bound
+        elif new_theta[i] > upper_bound:
+            new_theta[i] = upper_bound
+    
+    return new_theta
 
-    # Set the convergence threshold and maximum iterations
-    threshold = 1e-6
-    max_iterations = 100
-    damping_constant = 0.01
+def calculate_max_reach(dh_parameters):
+    """
+    Calculate the maximum reach of the arm in the direction of the target position.
+    
+    Args:
+        dh_parameters (numpy.ndarray): DH parameters representing the robotic arm.
+        
+    Returns:
+        float: Maximum reach of the arm.
+    """
+    # Get the lengths (a values) from the DH parameters
+    lengths = dh_parameters[:, 0]
+    
+    # Calculate the sum of the lengths
+    max_reach = np.sum(lengths)
+    
+    return max_reach
 
-    # Initialize the iteration counter and the error
-    iterations = 0
-    error = np.inf
 
-    while error > threshold and iterations < max_iterations:
-        # perform forward kinematics with the current joint angles
-        transformations = forward_kinematics(dh_parameters)
-        end_effector_translation_vector = transformations[-1][:3,3]
-        end_effector_orientation_matrix = transformations[-1][:3,:3]
-        end_effector_orientation = np.array(extract_euler_angles_zyx(end_effector_orientation_matrix))
+def scale_target_position(target_position, max_reach):
+    """
+    Scale down the target position if it's outside the maximum reach of the arm.
+    
+    Args:
+        target_position (numpy.ndarray): Desired target position (x, y, z) coordinates.
+        max_reach (float): Maximum reach of the arm.
+        
+    Returns:
+        numpy.ndarray: Scaled target position lying on the sphere of maximum reach.
+    """
+    distance = np.linalg.norm(target_position)
+    
+    if distance > max_reach:
+        scale_factor = max_reach / distance
+        scaled_position = target_position * scale_factor
+        return scaled_position
+    else:
+        return target_position
 
-        # calculate the difference in translation vectors
-        translation_diff = end_effector[:3] - end_effector_translation_vector
-        _translation_diff = np.multiply([1,1,1], translation_diff)
-
-        orientation_diff = end_effector[3:] - end_effector_orientation
-        _orientation_diff = np.multiply([0,1,0], orientation_diff)
-
-        # calculate the overall error as the Euclidean distance between the differences 
-        # print(translation_diff, _translation_diff)
-        # print(orientation_diff, _orientation_diff)
-        error_vector = np.concatenate((_translation_diff, _orientation_diff))
-        error =  np.linalg.norm(error_vector)
-        if error <= threshold:
-            break
-
-        # Calculate the Jacobian matrix
-        jacobian = calculate_jacobian_fin_diff(dh_parameters)
-
-        # update the joint angles using the pseudo-inverse of the Jacobian
-        # delta_theta = np.linalg.pinv(jacobian[:3,:]) @ (translation_diff)
-        j = jacobian # [:3,:]
-
-        delta_theta = j.T @ np.linalg.inv(j @ j.T + damping_constant**2 * np.eye(6)) @ error_vector
-
-        theta += delta_theta
-
-        # update the DH parameters
-        dh_parameters[:,3] = theta
-        iterations += 1
-
-    if iterations == max_iterations:
-        print("[WARN]: Inverse kinematics did not converge... last error: ", error)
-    #else:
-        #print(f'[INFO]: Converged after {iterations} iterations; last error: ', error)
-        #print(f'[INFO]: Achieved final end effector position: ({", ".join(str(round(i, 4)) for i in end_effector_translation_vector)})',
-        #      f'theta: ({", ".join(str(round(math.degrees(i), 4)) + "°" for i in theta)})')
-
-    return theta
 
 
 def inverse_kinematics_(method: str, dh_parameters: np.ndarray, target_pose: np.ndarray, **kwargs):
     """Compute optimal joint angles to achieve target end-effector pose"""
 
-    # initialize the joint angles
-    theta = dh_parameters[:,3]
-    pose_weights = kwargs.get('pose_weights', np.array([1,1,1,0,0,0]))
-    
-    # Set the convergence threshold, step size and maximum iterations
+    # initialize arguments
+    theta = kwargs.get('theta_init', dh_parameters[:,3])
+    pose_weights = kwargs.get('pose_weights', np.array([1,1,1,0,0,0])) 
+    theta_limits: list[tuple[float]] = kwargs.get('theta_limits', None)
+
+    # set the convergence threshold, step size and maximum iterations
     threshold = 1e-6
     max_iterations = 100
 
-    # Initialize the iteration counter and the error
+    # snitialize iteration counter and error
     iterations = 0
     error = np.inf
 
@@ -352,18 +314,18 @@ def inverse_kinematics_(method: str, dh_parameters: np.ndarray, target_pose: np.
         current_orientation = extract_euler_angles_zyx(transformations[-1][:3,:3])
         current_pose = np.concatenate((current_position, current_orientation))
 
-        # calculate error vector
+        # calculate error
         error_vector = target_pose - current_pose
         error_vector = np.multiply(pose_weights, error_vector)
-
-        # calculate the overall error as the Euclidean distance between the differences 
         error =  np.linalg.norm(error_vector)
         if error <= threshold:
             break
 
-        # Calculate the Jacobian matrix and mask using pose_weights
         jacobian = calculate_jacobian_fin_diff(dh_parameters)
+        
+        # mask using pose_weights
         j = jacobian * pose_weights.reshape(-1,1)
+
 
         # jacobian pseudo-inverse method
         if method.lower() == 'jpi':
@@ -372,17 +334,18 @@ def inverse_kinematics_(method: str, dh_parameters: np.ndarray, target_pose: np.
         # damped least squares method
         elif method.lower() == 'dls':
             damping_constant = kwargs['damping_constant'] or 0.01
-            #if not (damping_constant := kwargs['damping_constant']):
-            #    raise Exception(f"damping_constant required for IK DLS")
-
             delta_theta = j.T @ np.linalg.inv(j @ j.T + damping_constant**2 * np.eye(len(j))) @ (error_vector)
 
         else:
             raise Exception(f"invalid method '{method}'")
 
-        theta += delta_theta
+        # enforce joint constraints
+        if theta_limits is None:
+            theta += delta_theta
+        else:
+            theta = update_joint_angles(theta, delta_theta, theta_limits)
+            #print('updating with hard limits: ', ', '.join(str(round(i, 2)) for i in theta))
 
-        # update the DH parameters
         dh_parameters[:,3] = theta
         iterations += 1
 

@@ -401,7 +401,8 @@ def get_next_joint_angles(frame: int, sim_config: SimConfig) -> np.ndarray:
         target_coords = start + (frame/360) * _range 
         target_pose = np.concatenate((target_coords, [math.radians(i) for i in [0, 45, 0]]))
             
-        _joint_angles = inverse_kinematics_('dls', dh_params, target_pose, damping_constant=0.01)
+        _joint_angles = inverse_kinematics_('dls', dh_params, target_pose, 
+                                            damping_constant=0.01, **(sim_config.kwargs if sim_config.kwargs is not None else {}))
 
         if _joint_angles is not None:
             joint_angles = _joint_angles
@@ -471,9 +472,18 @@ if __name__=='__main__':
         (0, 0, 'counterclockwise')  # Joint 3 sweeps from 0° to 180° in a counterclockwise direction
     ]
 
+    joint_limits = [
+        (-180, 180),
+        (0, 180),
+        (-90, 90),
+        (-90, 90),
+        (-180, 180)
+    ]
+
     kwargs = {
         'num_frames': num_frames,
-        'sim_interval': sim_inverval
+        'sim_interval': sim_inverval,
+        'theta_limits': [(np.radians(lower), np.radians(upper)) for lower, upper in joint_limits]
     }
 
     sim_config = SimConfig(s_type='FK', \
